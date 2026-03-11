@@ -1,0 +1,46 @@
+{
+  "name": "@sha3/polymarket-snapshot",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "npm run standards:check && npm run lint && npm run format:check && npm run typecheck && npm run test",
+    "fix": "npm run lint:fix && npm run format:write",
+    "lint": "biome check .",
+    "lint:fix": "biome check . --write",
+    "format:check": "biome format .",
+    "format:write": "biome format . --write",
+    "standards:check": "code-standards verify",
+    "typecheck": "tsc --noEmit",
+    "test": "node scripts/run-tests.mjs",
+    "test:real-snapshot": "node --import ./scripts/enable-real-snapshot-test.mjs --import tsx --test test/real-snapshot.test.ts",
+    "publish": "node scripts/release-publish.mjs"
+  },
+  "dependencies": {
+    "@sha3/crypto": "file:../crypto",
+    "@sha3/logger": "^2.0.0",
+    "@sha3/polymarket": "file:../polymarket"
+  },
+  "devDependencies": {
+    "@sha3/code-standards": "^0.33.0",
+    "@biomejs/biome": "^1.9.4",
+    "@types/node": "^22.13.10",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sha3dev/polymarket-snapshot"
+  },
+  "codeStandards": {
+    "template": "node-lib",
+    "profilePath": null,
+    "withAiAdapters": true,
+    "lastRefactorWith": "0.33.0",
+    "contractVersion": "v1"
+  }
+}
