@@ -391,18 +391,25 @@ export class SnapshotService {
       this.runtimeState.snapshotStartTimeout = this.scheduler.setTimeout((): void => {
         this.runtimeState.snapshotStartTimeout = null;
         this.emitSnapshotsAt(nextSnapshotAtMs);
-        this.startSnapshotInterval(nextSnapshotAtMs + this.snapshotIntervalMs);
+        this.startSnapshotInterval();
       }, delayMs);
     }
   }
 
-  private startSnapshotInterval(nextSnapshotAtMs: number): void {
-    let nextAlignedSnapshotAtMs = nextSnapshotAtMs;
+  private startSnapshotInterval(): void {
+    this.scheduleNextSnapshotTick();
+  }
 
-    this.runtimeState.snapshotInterval = this.scheduler.setInterval((): void => {
-      this.emitSnapshotsAt(nextAlignedSnapshotAtMs);
-      nextAlignedSnapshotAtMs += this.snapshotIntervalMs;
-    }, this.snapshotIntervalMs);
+  private scheduleNextSnapshotTick(): void {
+    const nowMs = this.scheduler.now();
+    const nextSnapshotAtMs = this.getFollowingSnapshotAtMs(nowMs);
+    const delayMs = Math.max(nextSnapshotAtMs - nowMs, 0);
+
+    this.runtimeState.snapshotInterval = this.scheduler.setTimeout((): void => {
+      this.runtimeState.snapshotInterval = null;
+      this.emitSnapshotsAt(nextSnapshotAtMs);
+      this.scheduleNextSnapshotTick();
+    }, delayMs);
   }
 
   private getAlignedSnapshotAtMs(nowMs: number): number {
@@ -414,6 +421,12 @@ export class SnapshotService {
     const alignedSnapshotAtMs = this.getAlignedSnapshotAtMs(nowMs);
     const nextSnapshotAtMs = alignedSnapshotAtMs === nowMs ? nowMs : alignedSnapshotAtMs + this.snapshotIntervalMs;
     return nextSnapshotAtMs;
+  }
+
+  private getFollowingSnapshotAtMs(nowMs: number): number {
+    const alignedSnapshotAtMs = this.getAlignedSnapshotAtMs(nowMs);
+    const followingSnapshotAtMs = alignedSnapshotAtMs + this.snapshotIntervalMs;
+    return followingSnapshotAtMs;
   }
 
   private async stopRuntime(): Promise<void> {
@@ -428,7 +441,7 @@ export class SnapshotService {
     }
 
     if (this.runtimeState.snapshotInterval !== null) {
-      this.scheduler.clearInterval(this.runtimeState.snapshotInterval);
+      this.scheduler.clearTimeout(this.runtimeState.snapshotInterval);
       this.runtimeState.snapshotInterval = null;
     }
 

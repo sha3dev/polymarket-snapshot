@@ -24,7 +24,7 @@ type ScheduledTask = {
   intervalMs: number | null;
 };
 
-type FakeScheduler = SnapshotScheduler & { advanceBy(delayMs: number): void };
+type FakeScheduler = SnapshotScheduler & { advanceBy(delayMs: number): void; readTaskCount(): number };
 
 type SchedulerRuntime = {
   readNow: () => number;
@@ -32,6 +32,11 @@ type SchedulerRuntime = {
   clearTask: (timer: unknown) => void;
   advanceBy: (delayMs: number) => void;
 };
+
+const TIMEOUT_METHOD = "setTimeout";
+const CLEAR_TIMEOUT_METHOD = "clearTimeout";
+const INTERVAL_METHOD = "setInterval";
+const CLEAR_INTERVAL_METHOD = "clearInterval";
 
 function findNextScheduledTask(tasks: Map<number, ScheduledTask>, targetMs: number): ScheduledTask | null {
   let selectedTask: ScheduledTask | null = null;
@@ -111,31 +116,38 @@ function createSchedulerAdvancer(tasks: Map<number, ScheduledTask>, readNow: () 
   return advanceBy;
 }
 
+function createFakeSchedulerTimerApi(runtime: SchedulerRuntime): Pick<FakeScheduler, "setTimeout" | "clearTimeout" | "setInterval" | "clearInterval"> {
+  const timerApi = {
+    [TIMEOUT_METHOD](listener: () => void, delayMs: number): unknown {
+      const taskId = runtime.registerCallback(listener, delayMs, null);
+      return taskId;
+    },
+    [CLEAR_TIMEOUT_METHOD](timer: unknown): void {
+      runtime.clearTask(timer);
+    },
+    [INTERVAL_METHOD](listener: () => void, delayMs: number): unknown {
+      const taskId = runtime.registerCallback(listener, delayMs, delayMs);
+      return taskId;
+    },
+    [CLEAR_INTERVAL_METHOD](timer: unknown): void {
+      runtime.clearTask(timer);
+    },
+  } satisfies Pick<FakeScheduler, "setTimeout" | "clearTimeout" | "setInterval" | "clearInterval">;
+  return timerApi;
+}
+
 function buildFakeScheduler(runtime: SchedulerRuntime): FakeScheduler {
-  const intervalName = "setInterval";
-  const timeoutName = "setTimeout";
-  const clearIntervalName = "clearInterval";
-  const clearTimeoutName = "clearTimeout";
+  const timerApi = createFakeSchedulerTimerApi(runtime);
   const scheduler = {
     now(): number {
       return runtime.readNow();
     },
-    [timeoutName](listener: () => void, delayMs: number): unknown {
-      const taskId = runtime.registerCallback(listener, delayMs, null);
-      return taskId;
-    },
-    [clearTimeoutName](timer: unknown): void {
-      runtime.clearTask(timer);
-    },
-    [intervalName](listener: () => void, delayMs: number): unknown {
-      const taskId = runtime.registerCallback(listener, delayMs, delayMs);
-      return taskId;
-    },
-    [clearIntervalName](timer: unknown): void {
-      runtime.clearTask(timer);
-    },
+    ...timerApi,
     advanceBy(delayMs: number): void {
       runtime.advanceBy(delayMs);
+    },
+    readTaskCount(): number {
+      return 0;
     },
   } satisfies FakeScheduler;
   return scheduler;
@@ -153,6 +165,7 @@ function createFakeSchedulerApi(
   const clearTask = createSchedulerTaskClearer(tasks);
   const advanceBy = createSchedulerAdvancer(tasks, readNow, writeNow);
   const scheduler = buildFakeScheduler({ readNow, registerCallback, clearTask, advanceBy });
+  scheduler.readTaskCount = (): number => tasks.size;
   return scheduler;
 }
 
@@ -172,6 +185,56 @@ function createFakeScheduler(nowMs: number): FakeScheduler {
   }
 
   const scheduler = createFakeSchedulerApi(tasks, readNow, writeNow, readNextId, bumpNextId);
+  return scheduler;
+}
+
+function createLateExecutionSchedulerAdvancer(
+  tasks: Map<number, ScheduledTask>,
+  readNow: () => number,
+  writeNow: (nextMs: number) => void,
+): (delayMs: number) => void {
+  return (delayMs: number): void => {
+    const targetMs = readNow() + delayMs;
+
+    while (true) {
+      const nextTask = findNextScheduledTask(tasks, targetMs);
+
+      if (nextTask === null) {
+        break;
+      }
+
+      tasks.delete(nextTask.id);
+      writeNow(targetMs);
+      nextTask.listener();
+    }
+
+    writeNow(targetMs);
+  };
+}
+
+function createLateExecutionScheduler(nowMs: number): FakeScheduler {
+  const tasks = new Map<number, ScheduledTask>();
+  let currentMs = nowMs;
+  let nextId = 1;
+  const readNow = (): number => currentMs;
+
+  function writeNow(nextMs: number): void {
+    currentMs = nextMs;
+  }
+
+  function readNextId(): number {
+    return nextId;
+  }
+
+  function bumpNextId(): void {
+    nextId += 1;
+  }
+
+  const registerTask = createSchedulerTaskRegistrar(tasks, readNow);
+  const registerCallback = createSchedulerCallbackRegistrar(registerTask, readNextId, bumpNextId);
+  const clearTask = createSchedulerTaskClearer(tasks);
+  const advanceBy = createLateExecutionSchedulerAdvancer(tasks, readNow, writeNow);
+  const scheduler = buildFakeScheduler({ readNow, registerCallback, clearTask, advanceBy });
   return scheduler;
 }
 
@@ -386,6 +449,26 @@ function createServiceFixture(nowMs: number): {
   createdCryptoClients: FakeCryptoClient[];
 } {
   const scheduler = createFakeScheduler(nowMs);
+  const logger = new FakeLogger();
+  const marketsBySlug = createFixtureMarkets();
+  const marketCatalog = new FakeMarketCatalog(marketsBySlug);
+  const marketStream = new FakeMarketStream();
+  const createdCryptoClients: FakeCryptoClient[] = [];
+  const service = createSnapshotService(scheduler, logger, marketCatalog, marketStream, createdCryptoClients);
+
+  seedPriceToBeat(marketCatalog);
+  return { service, scheduler, logger, marketCatalog, marketStream, createdCryptoClients };
+}
+
+function createLateExecutionServiceFixture(nowMs: number): {
+  service: SnapshotService;
+  scheduler: FakeScheduler;
+  logger: FakeLogger;
+  marketCatalog: FakeMarketCatalog;
+  marketStream: FakeMarketStream;
+  createdCryptoClients: FakeCryptoClient[];
+} {
+  const scheduler = createLateExecutionScheduler(nowMs);
   const logger = new FakeLogger();
   const marketsBySlug = createFixtureMarkets();
   const marketCatalog = new FakeMarketCatalog(marketsBySlug);
@@ -618,6 +701,46 @@ test("SnapshotService aligns generatedAt to the configured interval grid", async
 
   const latestSnapshot = fixture.service.getSnapshot({ assets: ["btc"], windows: ["5m"] })[0];
   assert.equal(latestSnapshot?.generatedAt, Date.parse("2026-01-01T00:00:02.000Z"));
+
+  await fixture.service.disconnect();
+});
+
+test("SnapshotService avoids accumulated drift when snapshot dispatch executes late", async () => {
+  const fixture = createLateExecutionServiceFixture(Date.parse("2026-01-01T00:00:01.137Z"));
+  const receivedSnapshots: Snapshot[] = [];
+
+  function snapshotListener(snapshot: Snapshot): void {
+    receivedSnapshots.push(snapshot);
+  }
+
+  fixture.service.addSnapshotListener({ listener: snapshotListener, assets: ["btc"], windows: ["5m"] });
+  await waitForCondition(
+    () =>
+      fixture.createdCryptoClients.length === 1 &&
+      fixture.marketCatalog.slugLoads.length === 1 &&
+      fixture.scheduler.readTaskCount() > 0 &&
+      fixture.service.getSnapshot({ assets: ["btc"], windows: ["5m"] }).length === 1,
+  );
+
+  fixture.scheduler.advanceBy(363);
+  await flushAsync();
+  assert.equal(receivedSnapshots[0]?.generatedAt, Date.parse("2026-01-01T00:00:01.500Z"));
+
+  fixture.scheduler.advanceBy(550);
+  await flushAsync();
+  assert.equal(receivedSnapshots[1]?.generatedAt, Date.parse("2026-01-01T00:00:02.000Z"));
+
+  fixture.scheduler.advanceBy(450);
+  await flushAsync();
+  assert.equal(receivedSnapshots[2]?.generatedAt, Date.parse("2026-01-01T00:00:02.500Z"));
+
+  fixture.scheduler.advanceBy(600);
+  await flushAsync();
+  assert.equal(receivedSnapshots[3]?.generatedAt, Date.parse("2026-01-01T00:00:03.000Z"));
+
+  fixture.scheduler.advanceBy(400);
+  await flushAsync();
+  assert.equal(receivedSnapshots[4]?.generatedAt, Date.parse("2026-01-01T00:00:03.500Z"));
 
   await fixture.service.disconnect();
 });
