@@ -152,10 +152,3 @@ export type PairState = {
 };
 
 export type PairKeyParts = { asset: SnapshotAsset; window: SnapshotWindow };
-
-export type RuntimeState = {
-  snapshotStartTimeout: unknown | null;
-  snapshotInterval: unknown | null;
-  marketListenerRemover: (() => void) | null;
-  cryptoSubscription: SnapshotSubscription | null;
-};

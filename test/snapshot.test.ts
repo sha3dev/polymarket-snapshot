@@ -33,10 +33,30 @@ type SchedulerRuntime = {
   advanceBy: (delayMs: number) => void;
 };
 
+type SnapshotEmission = {
+  sequence: number;
+  receivedAt: number;
+  taskCount: number;
+  snapshot: Snapshot;
+  loggerTail: string[];
+};
+
+type DuplicateObservation = {
+  key: string;
+  firstEmission: SnapshotEmission;
+  secondEmission: SnapshotEmission;
+  changedFields: string[];
+};
+
+type SnapshotServiceInternals = {
+  emitSnapshotsAt: (generatedAt: number) => void;
+};
+
 const TIMEOUT_METHOD = "setTimeout";
 const CLEAR_TIMEOUT_METHOD = "clearTimeout";
 const INTERVAL_METHOD = "setInterval";
 const CLEAR_INTERVAL_METHOD = "clearInterval";
+const DIAGNOSTIC_LOG_TAIL_SIZE = 6;
 
 function findNextScheduledTask(tasks: Map<number, ScheduledTask>, targetMs: number): ScheduledTask | null {
   let selectedTask: ScheduledTask | null = null;
@@ -236,6 +256,94 @@ function createLateExecutionScheduler(nowMs: number): FakeScheduler {
   const advanceBy = createLateExecutionSchedulerAdvancer(tasks, readNow, writeNow);
   const scheduler = buildFakeScheduler({ readNow, registerCallback, clearTask, advanceBy });
   return scheduler;
+}
+
+function buildEmissionKey(snapshot: Snapshot): string {
+  const emissionKey = `${snapshot.asset}:${snapshot.window}:${snapshot.generatedAt}`;
+  return emissionKey;
+}
+
+function buildComparableSnapshotValues(snapshot: Snapshot): Record<string, number | string | null> {
+  const comparableValues = {
+    marketSlug: snapshot.marketSlug,
+    priceToBeat: snapshot.priceToBeat,
+    upEventTs: snapshot.upEventTs,
+    downEventTs: snapshot.downEventTs,
+    binanceEventTs: snapshot.binanceEventTs,
+    coinbaseEventTs: snapshot.coinbaseEventTs,
+    krakenEventTs: snapshot.krakenEventTs,
+    okxEventTs: snapshot.okxEventTs,
+    chainlinkEventTs: snapshot.chainlinkEventTs,
+  };
+  return comparableValues;
+}
+
+function buildChangedFields(firstSnapshot: Snapshot, secondSnapshot: Snapshot): string[] {
+  const changedFields: string[] = [];
+  const firstComparableValues = buildComparableSnapshotValues(firstSnapshot);
+  const secondComparableValues = buildComparableSnapshotValues(secondSnapshot);
+
+  for (const comparableField of Object.keys(firstComparableValues)) {
+    const firstValue = firstComparableValues[comparableField];
+    const secondValue = secondComparableValues[comparableField];
+
+    if (firstValue !== secondValue) {
+      changedFields.push(`${comparableField}:${firstValue ?? "null"}=>${secondValue ?? "null"}`);
+    }
+  }
+
+  return changedFields;
+}
+
+function collectDuplicateObservations(emissions: SnapshotEmission[]): DuplicateObservation[] {
+  const firstEmissionByKey = new Map<string, SnapshotEmission>();
+  const duplicateObservations: DuplicateObservation[] = [];
+
+  for (const emission of emissions) {
+    const emissionKey = buildEmissionKey(emission.snapshot);
+    const previousEmission = firstEmissionByKey.get(emissionKey) ?? null;
+
+    if (previousEmission === null) {
+      firstEmissionByKey.set(emissionKey, emission);
+    }
+
+    if (previousEmission !== null) {
+      duplicateObservations.push({
+        key: emissionKey,
+        firstEmission: previousEmission,
+        secondEmission: emission,
+        changedFields: buildChangedFields(previousEmission.snapshot, emission.snapshot),
+      });
+    }
+  }
+
+  return duplicateObservations;
+}
+
+function buildDuplicateDiagnostic(duplicateObservation: DuplicateObservation): string {
+  const diagnosticPayload = {
+    key: duplicateObservation.key,
+    changedFields: duplicateObservation.changedFields,
+    firstEmission: buildEmissionDiagnostic(duplicateObservation.firstEmission),
+    secondEmission: buildEmissionDiagnostic(duplicateObservation.secondEmission),
+  };
+  const diagnosticMessage = JSON.stringify(diagnosticPayload, null, 2);
+  return diagnosticMessage;
+}
+
+function buildEmissionDiagnostic(emission: SnapshotEmission): Record<string, number | string | string[] | null> {
+  const emissionDiagnostic = {
+    sequence: emission.sequence,
+    receivedAt: emission.receivedAt,
+    taskCount: emission.taskCount,
+    marketSlug: emission.snapshot.marketSlug,
+    priceToBeat: emission.snapshot.priceToBeat,
+    upEventTs: emission.snapshot.upEventTs,
+    downEventTs: emission.snapshot.downEventTs,
+    binanceEventTs: emission.snapshot.binanceEventTs,
+    loggerTail: emission.loggerTail,
+  };
+  return emissionDiagnostic;
 }
 
 class FakeLogger implements SnapshotLogger {
@@ -480,6 +588,27 @@ function createLateExecutionServiceFixture(nowMs: number): {
   return { service, scheduler, logger, marketCatalog, marketStream, createdCryptoClients };
 }
 
+function createCustomServiceFixture(options: {
+  nowMs: number;
+  marketsBySlug: Map<string, PolymarketMarket>;
+  useLateExecutionScheduler?: boolean;
+}): {
+  service: SnapshotService;
+  scheduler: FakeScheduler;
+  logger: FakeLogger;
+  marketCatalog: FakeMarketCatalog;
+  marketStream: FakeMarketStream;
+  createdCryptoClients: FakeCryptoClient[];
+} {
+  const scheduler = options.useLateExecutionScheduler ? createLateExecutionScheduler(options.nowMs) : createFakeScheduler(options.nowMs);
+  const logger = new FakeLogger();
+  const marketCatalog = new FakeMarketCatalog(options.marketsBySlug);
+  const marketStream = new FakeMarketStream();
+  const createdCryptoClients: FakeCryptoClient[] = [];
+  const service = createSnapshotService(scheduler, logger, marketCatalog, marketStream, createdCryptoClients);
+  return { service, scheduler, logger, marketCatalog, marketStream, createdCryptoClients };
+}
+
 function createFixtureMarkets(): Map<string, PolymarketMarket> {
   const marketA = createMarket("btc-updown-5m-1767225600", "btc", "2026-01-01T00:00:00.000Z", "2026-01-01T00:05:00.000Z");
   const marketB = createMarket("btc-updown-5m-1767225900", "btc", "2026-01-01T00:05:00.000Z", "2026-01-01T00:10:00.000Z");
@@ -489,6 +618,16 @@ function createFixtureMarkets(): Map<string, PolymarketMarket> {
   marketsBySlug.set(marketA.slug, marketA);
   marketsBySlug.set(marketB.slug, marketB);
   marketsBySlug.set(marketC.slug, marketC);
+  return marketsBySlug;
+}
+
+function createDualWindowFixtureMarkets(): Map<string, PolymarketMarket> {
+  const marketA = createMarket("xrp-updown-5m-1767225600", "xrp", "2026-01-01T00:00:00.000Z", "2026-01-01T00:05:00.000Z");
+  const marketB = createMarket("xrp-updown-15m-1767225600", "xrp", "2026-01-01T00:00:00.000Z", "2026-01-01T00:15:00.000Z");
+  const marketsBySlug = new Map<string, PolymarketMarket>();
+
+  marketsBySlug.set(marketA.slug, marketA);
+  marketsBySlug.set(marketB.slug, marketB);
   return marketsBySlug;
 }
 
@@ -742,6 +881,124 @@ test("SnapshotService avoids accumulated drift when snapshot dispatch executes l
   await flushAsync();
   assert.equal(receivedSnapshots[4]?.generatedAt, Date.parse("2026-01-01T00:00:03.500Z"));
 
+  await fixture.service.disconnect();
+});
+
+test("SnapshotService suppresses re-emission for the same pair and generatedAt", async () => {
+  const fixture = createServiceFixture(Date.parse("2026-01-01T00:00:01.000Z"));
+  const receivedSnapshots: Snapshot[] = [];
+  const serviceInternals = fixture.service as unknown as SnapshotServiceInternals;
+
+  function snapshotListener(snapshot: Snapshot): void {
+    receivedSnapshots.push(snapshot);
+  }
+
+  fixture.service.addSnapshotListener({ listener: snapshotListener, assets: ["btc"], windows: ["5m"] });
+  await waitForCondition(() => fixture.service.getSnapshot({ assets: ["btc"], windows: ["5m"] }).length === 1);
+
+  serviceInternals.emitSnapshotsAt(Date.parse("2026-01-01T00:00:01.500Z"));
+  serviceInternals.emitSnapshotsAt(Date.parse("2026-01-01T00:00:01.500Z"));
+
+  assert.equal(receivedSnapshots.length, 1);
+  assert.equal(receivedSnapshots[0]?.generatedAt, Date.parse("2026-01-01T00:00:01.500Z"));
+
+  await fixture.service.disconnect();
+});
+
+test("SnapshotService logs diagnostic context when minute-boundary listener churn creates duplicate emissions", async (context) => {
+  const fixture = createServiceFixture(Date.parse("2026-01-01T00:00:58.750Z"));
+  const receivedEmissions: SnapshotEmission[] = [];
+  let sequence = 0;
+
+  function snapshotListener(snapshot: Snapshot): void {
+    const emission: SnapshotEmission = {
+      sequence,
+      receivedAt: fixture.scheduler.now(),
+      taskCount: fixture.scheduler.readTaskCount(),
+      snapshot,
+      loggerTail: fixture.logger.messages.slice(-DIAGNOSTIC_LOG_TAIL_SIZE),
+    };
+    receivedEmissions.push(emission);
+    sequence += 1;
+  }
+
+  fixture.service.addSnapshotListener({ listener: snapshotListener, assets: ["btc"], windows: ["5m", "15m"] });
+  await waitForCondition(() => fixture.service.getSnapshot({ assets: ["btc"], windows: ["5m", "15m"] }).length === 2);
+
+  for (let minuteIndex = 0; minuteIndex < 4; minuteIndex += 1) {
+    fixture.scheduler.advanceBy(59_000);
+    await flushAsync();
+    fixture.service.removeSnapshotListener(snapshotListener);
+    fixture.service.addSnapshotListener({ listener: snapshotListener, assets: ["btc"], windows: ["5m", "15m"] });
+    await flushAsync();
+    fixture.scheduler.advanceBy(1_000);
+    await flushAsync();
+  }
+
+  const duplicateObservations = collectDuplicateObservations(receivedEmissions);
+
+  for (const duplicateObservation of duplicateObservations) {
+    context.diagnostic(buildDuplicateDiagnostic(duplicateObservation));
+  }
+
+  assert.equal(duplicateObservations.length, 0);
+  await fixture.service.disconnect();
+});
+
+test("SnapshotService logs diagnostic context when state is rebuilt for the same asset across both windows in one bucket", async (context) => {
+  const nowMs = Date.parse("2026-01-01T00:00:59.700Z");
+  const marketsBySlug = createDualWindowFixtureMarkets();
+  const fixture = createCustomServiceFixture({ nowMs, marketsBySlug, useLateExecutionScheduler: true });
+  const receivedEmissions: SnapshotEmission[] = [];
+  let sequence = 0;
+
+  fixture.marketCatalog.setPriceToBeat("xrp-updown-5m-1767225600", 2.01);
+  fixture.marketCatalog.setPriceToBeat("xrp-updown-15m-1767225600", 2.02);
+
+  function snapshotListener(snapshot: Snapshot): void {
+    const emission: SnapshotEmission = {
+      sequence,
+      receivedAt: fixture.scheduler.now(),
+      taskCount: fixture.scheduler.readTaskCount(),
+      snapshot,
+      loggerTail: fixture.logger.messages.slice(-DIAGNOSTIC_LOG_TAIL_SIZE),
+    };
+    receivedEmissions.push(emission);
+    sequence += 1;
+  }
+
+  fixture.service.addSnapshotListener({ listener: snapshotListener, assets: ["xrp"], windows: ["5m", "15m"] });
+  await waitForCondition(() => fixture.service.getSnapshot({ assets: ["xrp"], windows: ["5m", "15m"] }).length === 2);
+
+  const initialSnapshots = fixture.service.getSnapshot({ assets: ["xrp"], windows: ["5m", "15m"] });
+  const first5mSnapshot = initialSnapshots.find((snapshot) => snapshot.window === "5m") ?? null;
+  const first15mSnapshot = initialSnapshots.find((snapshot) => snapshot.window === "15m") ?? null;
+  const firstCryptoClient = fixture.createdCryptoClients[0] ?? null;
+
+  assert.notEqual(first5mSnapshot, null);
+  assert.notEqual(first15mSnapshot, null);
+  assert.notEqual(firstCryptoClient, null);
+
+  fixture.scheduler.advanceBy(300);
+  await flushAsync();
+  fixture.service.removeSnapshotListener(snapshotListener);
+  fixture.service.addSnapshotListener({ listener: snapshotListener, assets: ["xrp"], windows: ["5m", "15m"] });
+  await flushAsync();
+
+  firstCryptoClient?.emit(createPriceEvent("binance", "xrp", Date.parse("2026-01-01T00:00:59.900Z"), 2.1));
+  fixture.marketStream.emit(createMarketPriceEvent(first5mSnapshot?.upAssetId ?? "", "2026-01-01T00:00:59.910Z", 0.51));
+  fixture.marketStream.emit(createMarketPriceEvent(first15mSnapshot?.upAssetId ?? "", "2026-01-01T00:00:59.920Z", 0.61));
+
+  fixture.scheduler.advanceBy(500);
+  await flushAsync();
+
+  const duplicateObservations = collectDuplicateObservations(receivedEmissions);
+
+  for (const duplicateObservation of duplicateObservations) {
+    context.diagnostic(buildDuplicateDiagnostic(duplicateObservation));
+  }
+
+  assert.equal(duplicateObservations.length, 0);
   await fixture.service.disconnect();
 });
 

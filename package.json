@@ -1,11 +1,13 @@
 {
   "name": "@sha3/polymarket-snapshot",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": false,
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "check": "npm run standards:check && npm run lint && npm run format:check && npm run typecheck && npm run test",
