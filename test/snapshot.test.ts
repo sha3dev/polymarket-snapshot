@@ -905,6 +905,25 @@ test("SnapshotService suppresses re-emission for the same pair and generatedAt",
   await fixture.service.disconnect();
 });
 
+test("SnapshotService skips snapshots when generatedAt falls outside the active market window", async () => {
+  const fixture = createServiceFixture(Date.parse("2026-01-01T00:04:59.000Z"));
+  const receivedSnapshots: Snapshot[] = [];
+  const serviceInternals = fixture.service as unknown as SnapshotServiceInternals;
+
+  function snapshotListener(snapshot: Snapshot): void {
+    receivedSnapshots.push(snapshot);
+  }
+
+  fixture.service.addSnapshotListener({ listener: snapshotListener, assets: ["btc"], windows: ["5m"] });
+  await waitForCondition(() => fixture.service.getSnapshot({ assets: ["btc"], windows: ["5m"] }).length === 1);
+  const initialSnapshotCount = receivedSnapshots.length;
+
+  serviceInternals.emitSnapshotsAt(Date.parse("2026-01-01T00:05:00.000Z"));
+  assert.equal(receivedSnapshots.length, initialSnapshotCount);
+
+  await fixture.service.disconnect();
+});
+
 test("SnapshotService logs diagnostic context when minute-boundary listener churn creates duplicate emissions", async (context) => {
   const fixture = createServiceFixture(Date.parse("2026-01-01T00:00:58.750Z"));
   const receivedEmissions: SnapshotEmission[] = [];

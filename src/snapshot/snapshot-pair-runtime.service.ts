@@ -353,6 +353,19 @@ export class SnapshotPairRuntime {
     providerSnapshot.eventTs = event.ts;
   }
 
+  private isGeneratedAtInsideCurrentMarket(pairState: PairState, generatedAt: number): boolean {
+    const market = pairState.currentMarket;
+    let isGeneratedAtInsideCurrentMarket = false;
+
+    if (market !== null) {
+      const marketStartMs = market.start.getTime();
+      const marketEndMs = market.end.getTime();
+      isGeneratedAtInsideCurrentMarket = generatedAt >= marketStartMs && generatedAt < marketEndMs;
+    }
+
+    return isGeneratedAtInsideCurrentMarket;
+  }
+
   private isEventInsideMarket(pairState: PairState, event: MarketEvent): boolean {
     const market = pairState.currentMarket;
     let isEventInsideMarket = false;
@@ -425,6 +438,21 @@ export class SnapshotPairRuntime {
       const pairState = this.pairStateByKey.get(pairKey) ?? null;
 
       if (pairState !== null) {
+        snapshotByPairKey.set(pairKey, this.buildSnapshot(pairState, generatedAt));
+      }
+    }
+
+    return snapshotByPairKey;
+  }
+
+  public readEmittableSnapshots(pairKeys: string[], generatedAt: number): Map<string, Snapshot> {
+    const snapshotByPairKey = new Map<string, Snapshot>();
+
+    for (const pairKey of pairKeys) {
+      const pairState = this.pairStateByKey.get(pairKey) ?? null;
+      const isGeneratedAtInsideCurrentMarket = pairState !== null ? this.isGeneratedAtInsideCurrentMarket(pairState, generatedAt) : false;
+
+      if (pairState !== null && isGeneratedAtInsideCurrentMarket) {
         snapshotByPairKey.set(pairKey, this.buildSnapshot(pairState, generatedAt));
       }
     }

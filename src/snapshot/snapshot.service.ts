@@ -281,7 +281,7 @@ export class SnapshotService {
 
   private emitSnapshotsAt(generatedAt: number): void {
     const trackedPairKeys = this.listenerRegistry.readTrackedPairKeys(undefined, this.pairRuntime.readTrackedPairKeys());
-    const snapshotByPairKey = this.pairRuntime.readSnapshots(trackedPairKeys, generatedAt);
+    const snapshotByPairKey = this.pairRuntime.readEmittableSnapshots(trackedPairKeys, generatedAt);
     const pendingSnapshotByPairKey = this.buildPendingSnapshotByPairKey(snapshotByPairKey);
     this.listenerRegistry.dispatchSnapshots(pendingSnapshotByPairKey, this.serviceLogger);
   }
