@@ -28,6 +28,7 @@ Use this package when you want one flat snapshot object, with snake_case columns
 
 - Emits one flat snapshot that includes all configured assets and all configured windows.
 - Keeps crypto fields asset-scoped and Polymarket fields asset-and-window-scoped.
+- Fills `asset_window_price_to_beat` columns as soon as Polymarket exposes them for the active market.
 - Omits market-window columns when `generated_at` is outside the market interval.
 
 ## Installation
@@ -143,6 +144,7 @@ Market fields are asset-and-window-scoped. They are included only when `generate
 ```ts
 type LiveMarketFields = {
   btc_5m_slug: string | null;
+  btc_5m_price_to_beat: number | null;
   btc_5m_up_asset_id: string | null;
   btc_5m_up_price: number | null;
   btc_5m_up_order_book_json: string | null;
@@ -171,6 +173,8 @@ Configuration lives in [config.ts](/Users/jc/Documents/GitHub/polymarket-snapsho
 - `DEFAULT_SNAPSHOT_INTERVAL_MS`: default snapshot interval when the constructor receives no value.
 - `DEFAULT_SUPPORTED_ASSETS`: asset prefixes included in the snapshot by default.
 - `DEFAULT_SUPPORTED_WINDOWS`: Polymarket windows included in the snapshot by default.
+- `DEFAULT_PRICE_TO_BEAT_INITIAL_DELAY_MS`: initial wait before the first `price_to_beat` lookup for a newly activated market.
+- `DEFAULT_PRICE_TO_BEAT_RETRY_INTERVAL_MS`: retry wait when `price_to_beat` is still unavailable.
 - `MARKET_BOUNDARY_DELAY_MS`: delay applied after a market boundary before reloading the next market.
 - `MARKET_ACTIVATION_RETRY_INTERVAL_MS`: retry delay after a market activation failure.
 

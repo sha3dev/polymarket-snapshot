@@ -34,6 +34,8 @@ type SnapshotPairRuntimeOptions = {
   scheduler: SnapshotScheduler;
   serviceLogger: SnapshotLogger;
   supportedAssets: SnapshotAsset[];
+  priceToBeatInitialDelayMs: number;
+  priceToBeatRetryIntervalMs: number;
 };
 
 /**
@@ -50,6 +52,8 @@ export class SnapshotPairRuntime {
   private readonly scheduler: SnapshotScheduler;
   private readonly serviceLogger: SnapshotLogger;
   private readonly supportedAssets: SnapshotAsset[];
+  private readonly priceToBeatInitialDelayMs: number;
+  private readonly priceToBeatRetryIntervalMs: number;
   private readonly pairState: SnapshotPairState;
   private readonly cryptoStateByAsset: Map<SnapshotAsset, Record<CryptoProviderId, ProviderSnapshot>>;
   private readonly pairStateByKey: Map<string, PairState>;
@@ -66,6 +70,8 @@ export class SnapshotPairRuntime {
     this.scheduler = options.scheduler;
     this.serviceLogger = options.serviceLogger;
     this.supportedAssets = [...options.supportedAssets];
+    this.priceToBeatInitialDelayMs = options.priceToBeatInitialDelayMs;
+    this.priceToBeatRetryIntervalMs = options.priceToBeatRetryIntervalMs;
     this.pairState = new SnapshotPairState({ supportedAssets: this.supportedAssets });
     this.cryptoStateByAsset = new Map<SnapshotAsset, Record<CryptoProviderId, ProviderSnapshot>>();
     this.pairStateByKey = new Map<string, PairState>();
@@ -94,6 +100,10 @@ export class SnapshotPairRuntime {
           window: pairKeyParts.window,
           currentMarket: null,
           currentSlug: null,
+          priceToBeat: null,
+          hasResolvedPriceToBeat: false,
+          isPriceToBeatLoading: false,
+          priceToBeatTimer: null,
           rotationTimer: null,
           up: { assetId: null, price: null, orderBook: null, eventTs: null },
           down: { assetId: null, price: null, orderBook: null, eventTs: null },
@@ -128,6 +138,11 @@ export class SnapshotPairRuntime {
   }
 
   private clearPairTimers(pairState: PairState): void {
+    if (pairState.priceToBeatTimer !== null) {
+      this.scheduler.clearTimeout(pairState.priceToBeatTimer);
+      pairState.priceToBeatTimer = null;
+    }
+
     if (pairState.rotationTimer !== null) {
       this.scheduler.clearTimeout(pairState.rotationTimer);
       pairState.rotationTimer = null;
@@ -148,6 +163,9 @@ export class SnapshotPairRuntime {
   private resetPairMarketState(pairState: PairState, market: PolymarketMarket): void {
     pairState.currentMarket = market;
     pairState.currentSlug = market.slug;
+    pairState.priceToBeat = null;
+    pairState.hasResolvedPriceToBeat = false;
+    pairState.isPriceToBeatLoading = false;
     pairState.up = { assetId: market.upTokenId, price: null, orderBook: null, eventTs: null };
     pairState.down = { assetId: market.downTokenId, price: null, orderBook: null, eventTs: null };
   }
@@ -247,6 +265,28 @@ export class SnapshotPairRuntime {
     }, config.MARKET_ACTIVATION_RETRY_INTERVAL_MS);
   }
 
+  private schedulePriceToBeat(pairKey: string, pairState: PairState, delayMs: number): void {
+    if (pairState.priceToBeatTimer !== null) {
+      this.scheduler.clearTimeout(pairState.priceToBeatTimer);
+    }
+
+    pairState.priceToBeatTimer = this.scheduler.setTimeout((): void => {
+      void this.loadPriceToBeat(pairKey);
+    }, delayMs);
+  }
+
+  private finalizeLoadedPriceToBeat(pairKey: string, pairState: PairState, priceToBeat: number | null): void {
+    if (priceToBeat !== null) {
+      pairState.priceToBeat = priceToBeat;
+      pairState.hasResolvedPriceToBeat = true;
+      pairState.priceToBeatTimer = null;
+    }
+
+    if (priceToBeat === null) {
+      this.schedulePriceToBeat(pairKey, pairState, this.priceToBeatRetryIntervalMs);
+    }
+  }
+
   private async activatePairMarket(pairKey: string, pairState: PairState, date: Date): Promise<void> {
     const nextSlug = this.buildSlug(pairState.asset, pairState.window, date);
     const shouldReloadMarket = nextSlug !== pairState.currentSlug;
@@ -270,10 +310,34 @@ export class SnapshotPairRuntime {
       this.detachMarketTokens(pairKey, pairState);
       this.resetPairMarketState(pairState, nextMarket);
       this.attachMarketTokens(pairKey, pairState);
+      this.schedulePriceToBeat(pairKey, pairState, this.priceToBeatInitialDelayMs);
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       this.serviceLogger.warn(`[SNAPSHOT] Failed to activate market ${pairKey}: ${reason}`);
       this.scheduleMarketActivationRetry(pairKey, pairState);
+    }
+  }
+
+  private async loadPriceToBeat(pairKey: string): Promise<void> {
+    const pairState = this.pairStateByKey.get(pairKey) ?? null;
+    const canLoadPriceToBeat = pairState !== null && !pairState.hasResolvedPriceToBeat && !pairState.isPriceToBeatLoading && pairState.currentMarket !== null;
+
+    if (canLoadPriceToBeat && pairState !== null) {
+      const currentMarket = pairState.currentMarket;
+      if (currentMarket !== null) {
+        pairState.isPriceToBeatLoading = true;
+
+        try {
+          const priceToBeat = await this.marketCatalogService.getPriceToBeat({ market: currentMarket });
+          this.finalizeLoadedPriceToBeat(pairKey, pairState, priceToBeat);
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          this.serviceLogger.warn(`[SNAPSHOT] Failed to load priceToBeat ${pairKey}: ${reason}`);
+          this.schedulePriceToBeat(pairKey, pairState, this.priceToBeatRetryIntervalMs);
+        }
+
+        pairState.isPriceToBeatLoading = false;
+      }
     }
   }
 

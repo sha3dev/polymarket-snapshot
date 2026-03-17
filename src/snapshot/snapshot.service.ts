@@ -42,6 +42,8 @@ type SnapshotRuntimeOptions = {
   logger: SnapshotLogger;
   supportedAssets: SnapshotAsset[];
   supportedWindows: SnapshotWindow[];
+  priceToBeatInitialDelayMs?: number;
+  priceToBeatRetryIntervalMs?: number;
 };
 
 /**
@@ -54,6 +56,8 @@ export class SnapshotService {
    */
 
   private readonly snapshotIntervalMs: number;
+  private readonly priceToBeatInitialDelayMs: number;
+  private readonly priceToBeatRetryIntervalMs: number;
 
   /**
    * @section private:attributes
@@ -96,6 +100,8 @@ export class SnapshotService {
       },
     };
     this.snapshotIntervalMs = runtimeOptions?.snapshotIntervalMs ?? snapshotIntervalMs ?? config.DEFAULT_SNAPSHOT_INTERVAL_MS;
+    this.priceToBeatInitialDelayMs = runtimeOptions?.priceToBeatInitialDelayMs ?? config.DEFAULT_PRICE_TO_BEAT_INITIAL_DELAY_MS;
+    this.priceToBeatRetryIntervalMs = runtimeOptions?.priceToBeatRetryIntervalMs ?? config.DEFAULT_PRICE_TO_BEAT_RETRY_INTERVAL_MS;
     this.supportedAssets = [...(runtimeOptions?.supportedAssets ?? config.DEFAULT_SUPPORTED_ASSETS)];
     const supportedWindows = [...(runtimeOptions?.supportedWindows ?? config.DEFAULT_SUPPORTED_WINDOWS)];
     this.cryptoClientFactory = runtimeOptions?.cryptoClientFactory ?? ((assets): SnapshotCryptoClient => CryptoFeedClient.create({ symbols: assets }));
@@ -111,6 +117,8 @@ export class SnapshotService {
       scheduler: this.scheduler,
       serviceLogger: this.serviceLogger,
       supportedAssets: this.supportedAssets,
+      priceToBeatInitialDelayMs: this.priceToBeatInitialDelayMs,
+      priceToBeatRetryIntervalMs: this.priceToBeatRetryIntervalMs,
     });
     this.ticker = new SnapshotTicker({ scheduler: this.scheduler, snapshotIntervalMs: this.snapshotIntervalMs });
     this.lastEmittedGeneratedAt = null;
@@ -267,6 +275,7 @@ export class SnapshotService {
 
     if (pairSnapshot.is_live_market) {
       snapshot[`${pairSnapshotPrefix}_slug`] = pairSnapshot.slug;
+      snapshot[`${pairSnapshotPrefix}_price_to_beat`] = pairSnapshot.price_to_beat;
       snapshot[`${pairSnapshotPrefix}_up_asset_id`] = pairSnapshot.up_asset_id;
       snapshot[`${pairSnapshotPrefix}_up_price`] = pairSnapshot.up_price;
       snapshot[`${pairSnapshotPrefix}_up_order_book_json`] = pairSnapshot.up_order_book_json;

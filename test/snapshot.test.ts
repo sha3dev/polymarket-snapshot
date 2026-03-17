@@ -24,6 +24,7 @@ type Fixture = {
   marketStream: FakeMarketStream;
   scheduler: FakeScheduler;
   service: SnapshotService;
+  marketCatalog: FakeMarketCatalog;
 };
 
 type SnapshotServiceInternals = { emitSnapshotsAt(generatedAt: number): void };
@@ -40,6 +41,8 @@ type SnapshotServiceTestConstructor = {
       logger: SnapshotLogger;
       supportedAssets: SnapshotAsset[];
       supportedWindows: SnapshotWindow[];
+      priceToBeatInitialDelayMs?: number;
+      priceToBeatRetryIntervalMs?: number;
     },
   ): SnapshotService;
 };
@@ -188,9 +191,11 @@ class FakeCryptoClient implements SnapshotCryptoClient {
 
 class FakeMarketCatalog implements SnapshotMarketCatalog {
   private readonly marketsBySlug: Map<string, PolymarketMarket>;
+  private readonly priceToBeatQueueBySlug: Map<string, Array<number | null>>;
 
-  public constructor(marketsBySlug: Map<string, PolymarketMarket>) {
+  public constructor(marketsBySlug: Map<string, PolymarketMarket>, priceToBeatQueueBySlug?: Map<string, Array<number | null>>) {
     this.marketsBySlug = marketsBySlug;
+    this.priceToBeatQueueBySlug = priceToBeatQueueBySlug ?? new Map<string, Array<number | null>>();
   }
 
   public buildCryptoWindowSlugs(options: { date: Date; window: SnapshotWindow; symbols?: SnapshotAsset[] }): string[] {
@@ -208,6 +213,12 @@ class FakeMarketCatalog implements SnapshotMarketCatalog {
     }
 
     return market;
+  }
+
+  public async getPriceToBeat(options: { market: PolymarketMarket }): Promise<number | null> {
+    const priceToBeatQueue = this.priceToBeatQueueBySlug.get(options.market.slug) ?? null;
+    const nextPriceToBeat = priceToBeatQueue?.shift() ?? null;
+    return nextPriceToBeat;
   }
 }
 
@@ -270,18 +281,21 @@ function createMarket(slug: string, asset: SnapshotAsset, endIso: string): Polym
   return market;
 }
 
-function createFixture(nowMs = Date.parse(START_ISO)): Fixture {
+function createFixtureMarketsBySlug(): Map<string, PolymarketMarket> {
+  const marketsBySlug = new Map<string, PolymarketMarket>([
+    [BTC_FIVE_MINUTE_SLUG, createMarket(BTC_FIVE_MINUTE_SLUG, "btc", FIVE_MINUTE_END_ISO)],
+    [BTC_FIFTEEN_MINUTE_SLUG, createMarket(BTC_FIFTEEN_MINUTE_SLUG, "btc", FIFTEEN_MINUTE_END_ISO)],
+    [ETH_FIVE_MINUTE_SLUG, createMarket(ETH_FIVE_MINUTE_SLUG, "eth", FIVE_MINUTE_END_ISO)],
+    [ETH_FIFTEEN_MINUTE_SLUG, createMarket(ETH_FIFTEEN_MINUTE_SLUG, "eth", FIFTEEN_MINUTE_END_ISO)],
+  ]);
+  return marketsBySlug;
+}
+
+function createFixture(nowMs = Date.parse(START_ISO), priceToBeatQueueBySlug?: Map<string, Array<number | null>>): Fixture {
   const scheduler = new FakeScheduler(nowMs);
   const cryptoClient = new FakeCryptoClient();
   const marketStream = new FakeMarketStream();
-  const marketCatalog = new FakeMarketCatalog(
-    new Map<string, PolymarketMarket>([
-      [BTC_FIVE_MINUTE_SLUG, createMarket(BTC_FIVE_MINUTE_SLUG, "btc", FIVE_MINUTE_END_ISO)],
-      [BTC_FIFTEEN_MINUTE_SLUG, createMarket(BTC_FIFTEEN_MINUTE_SLUG, "btc", FIFTEEN_MINUTE_END_ISO)],
-      [ETH_FIVE_MINUTE_SLUG, createMarket(ETH_FIVE_MINUTE_SLUG, "eth", FIVE_MINUTE_END_ISO)],
-      [ETH_FIFTEEN_MINUTE_SLUG, createMarket(ETH_FIFTEEN_MINUTE_SLUG, "eth", FIFTEEN_MINUTE_END_ISO)],
-    ]),
-  );
+  const marketCatalog = new FakeMarketCatalog(createFixtureMarketsBySlug(), priceToBeatQueueBySlug);
   const snapshotServiceTestConstructor = SnapshotService as unknown as SnapshotServiceTestConstructor;
   const service = Reflect.construct(snapshotServiceTestConstructor, [
     undefined,
@@ -293,9 +307,11 @@ function createFixture(nowMs = Date.parse(START_ISO)): Fixture {
       marketStreamService: marketStream,
       supportedAssets: SUPPORTED_ASSETS,
       supportedWindows: SUPPORTED_WINDOWS,
+      priceToBeatInitialDelayMs: 100,
+      priceToBeatRetryIntervalMs: 50,
     },
   ]) as SnapshotService;
-  const fixture = { cryptoClient, marketStream, scheduler, service };
+  const fixture = { cryptoClient, marketStream, scheduler, service, marketCatalog };
   return fixture;
 }
 
@@ -362,7 +378,7 @@ test("SnapshotService emits one flat snapshot with live market slugs and market 
 });
 
 test("SnapshotService keeps the latest crypto and market values in the flat snapshot", async () => {
-  const fixture = createFixture();
+  const fixture = createFixture(Date.parse(START_ISO), new Map<string, Array<number | null>>([[BTC_FIVE_MINUTE_SLUG, [64_250]]]));
 
   fixture.service.addSnapshotListener({ listener: (): void => {} });
   await waitForCondition(() => fixture.service.getSnapshot() !== null);
@@ -371,7 +387,12 @@ test("SnapshotService keeps the latest crypto and market values in the flat snap
   fixture.cryptoClient.emit(createCryptoOrderBookEvent("btc", 120));
   fixture.marketStream.emit(createMarketPriceEvent(`up-${BTC_FIVE_MINUTE_SLUG}`, 0.62, "2024-01-01T00:00:00.100Z"));
   fixture.marketStream.emit(createMarketBookEvent(`up-${BTC_FIVE_MINUTE_SLUG}`, "2024-01-01T00:00:00.120Z"));
-  fixture.scheduler.advanceBy(500);
+  fixture.scheduler.advanceBy(100);
+  await waitForCondition(() => {
+    const latestSnapshot = fixture.service.getSnapshot();
+    const hasPriceToBeat = latestSnapshot !== null && readSnapshotNumber(latestSnapshot, "btc_5m_price_to_beat") !== null;
+    return hasPriceToBeat;
+  });
 
   const snapshot = fixture.service.getSnapshot();
 
@@ -381,12 +402,45 @@ test("SnapshotService keeps the latest crypto and market values in the flat snap
     assert.equal(readSnapshotNumber(snapshot, "btc_binance_price"), 65_000);
     assert.equal(readSnapshotNumber(snapshot, "btc_coinbase_event_ts"), 120);
     assert.equal(readSnapshotString(snapshot, "btc_5m_slug"), BTC_FIVE_MINUTE_SLUG);
+    assert.equal(readSnapshotNumber(snapshot, "btc_5m_price_to_beat"), 64_250);
     assert.equal(readSnapshotNumber(snapshot, "btc_5m_up_price"), 0.62);
     assert.equal(
       readSnapshotString(snapshot, "btc_5m_up_order_book_json"),
       JSON.stringify({ asks: [{ price: 0.7, size: 15 }], bids: [{ price: 0.6, size: 20 }] }),
     );
     assert.equal(Reflect.get(snapshot, "btc_chainlink_order_book_json"), undefined);
+  }
+});
+
+test("SnapshotService publishes price_to_beat once it becomes available after a retry", async () => {
+  const fixture = createFixture(Date.parse(START_ISO), new Map<string, Array<number | null>>([[BTC_FIVE_MINUTE_SLUG, [null, 64_300]]]));
+
+  fixture.service.addSnapshotListener({ listener: (): void => {} });
+  await waitForCondition(() => fixture.service.getSnapshot() !== null);
+
+  const initialSnapshot = fixture.service.getSnapshot();
+
+  assert.notEqual(initialSnapshot, null);
+
+  if (initialSnapshot !== null) {
+    assert.equal(readSnapshotNumber(initialSnapshot, "btc_5m_price_to_beat"), null);
+  }
+
+  fixture.scheduler.advanceBy(100);
+  await waitForCondition(() => fixture.service.getSnapshot() !== null);
+  fixture.scheduler.advanceBy(50);
+  await waitForCondition(() => {
+    const latestSnapshot = fixture.service.getSnapshot();
+    const hasPriceToBeat = latestSnapshot !== null && readSnapshotNumber(latestSnapshot, "btc_5m_price_to_beat") === 64_300;
+    return hasPriceToBeat;
+  });
+
+  const snapshot = fixture.service.getSnapshot();
+
+  assert.notEqual(snapshot, null);
+
+  if (snapshot !== null) {
+    assert.equal(readSnapshotNumber(snapshot, "btc_5m_price_to_beat"), 64_300);
   }
 });
 

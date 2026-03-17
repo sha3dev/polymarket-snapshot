@@ -32,6 +32,7 @@ export type PairSnapshot = {
   window: SnapshotWindow;
   is_live_market: boolean;
   slug: string | null;
+  price_to_beat: number | null;
   up_asset_id: string | null;
   up_price: number | null;
   up_order_book_json: string | null;
@@ -73,6 +74,7 @@ export type SnapshotCryptoClient = {
 export type SnapshotMarketCatalog = {
   buildCryptoWindowSlugs(options: { date: Date; window: SnapshotWindow; symbols?: SnapshotAsset[] }): string[];
   loadMarketBySlug(options: { slug: string }): Promise<PolymarketMarket>;
+  getPriceToBeat(options: { market: PolymarketMarket }): Promise<number | null>;
 };
 
 export type SnapshotMarketStream = {
@@ -103,6 +105,10 @@ export type PairState = {
   window: SnapshotWindow;
   currentMarket: PolymarketMarket | null;
   currentSlug: string | null;
+  priceToBeat: number | null;
+  hasResolvedPriceToBeat: boolean;
+  isPriceToBeatLoading: boolean;
+  priceToBeatTimer: unknown | null;
   rotationTimer: unknown | null;
   up: PolymarketOutcomeSnapshot;
   down: PolymarketOutcomeSnapshot;
