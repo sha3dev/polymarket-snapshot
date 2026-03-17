@@ -1,6 +1,6 @@
 {
   "formatVersion": "v1",
-  "generatedByVersion": "0.38.0",
+  "generatedByVersion": "0.39.0",
   "project": {
     "name": "polymarket-snapshot",
     "template": "node-lib",
@@ -715,24 +715,24 @@
     {
       "id": "concise-simple-callbacks",
       "title": "Concise Simple Callbacks",
-      "summary": "Simple callbacks must use concise arrow expressions instead of block bodies with an explicit return.",
-      "severity": "blocking-deterministic",
+      "summary": "Prefer concise arrow callbacks when Biome already keeps them concise; do not rewrite formatter-stable block callbacks just for style.",
+      "severity": "guidance",
       "kind": "style",
-      "deterministic": true,
-      "verificationMode": "deterministic",
-      "verificationSource": "ast",
-      "blocking": true,
+      "deterministic": false,
+      "verificationMode": "heuristic",
+      "verificationSource": "combined",
+      "blocking": false,
       "implementedBy": [
-        "typescript-style-verifier"
+        "policy-guidance"
       ],
       "requiresContext": "full-project",
-      "confidence": "high",
+      "confidence": "medium",
       "appliesTo": [
         "src/**/*.ts",
         "test/**/*.ts"
       ],
       "enforcedBy": [
-        "verify"
+        "guidance"
       ],
       "examples": {
         "good": [],
@@ -742,24 +742,24 @@
     {
       "id": "compact-single-line-constructs",
       "title": "Compact Single Line Constructs",
-      "summary": "Declarations, calls, imports, arrays, and objects that fit on one line should not be spread across multiple lines.",
+      "summary": "Prefer compact layouts, but let Biome decide final wrapping instead of forcing single-line constructs the formatter keeps multiline.",
       "severity": "guidance",
       "kind": "style",
       "deterministic": false,
       "verificationMode": "heuristic",
       "verificationSource": "combined",
-      "blocking": true,
+      "blocking": false,
       "implementedBy": [
-        "typescript-style-verifier"
+        "policy-guidance"
       ],
       "requiresContext": "full-project",
-      "confidence": "high",
+      "confidence": "medium",
       "appliesTo": [
         "src/**/*.ts",
         "test/**/*.ts"
       ],
       "enforcedBy": [
-        "verify"
+        "guidance"
       ],
       "examples": {
         "good": [],

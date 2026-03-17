@@ -71,7 +71,9 @@ export class SnapshotTicker {
    */
 
   public ensureStarted(emitSnapshotsAt: (generatedAt: number) => void): void {
-    if (this.snapshotStartTimeout === null && this.snapshotInterval === null) {
+    const isTickerStopped = this.snapshotStartTimeout === null && this.snapshotInterval === null;
+
+    if (isTickerStopped) {
       const nextSnapshotAtMs = this.getNextSnapshotAtMs(this.scheduler.now());
       const delayMs = Math.max(nextSnapshotAtMs - this.scheduler.now(), 0);
 

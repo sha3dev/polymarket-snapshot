@@ -5,6 +5,5 @@ import { PackageInfoService } from "../src/package-info/package-info.service.ts"
 
 test("PackageInfoService exposes the configured package name", () => {
   const packageInfoService = PackageInfoService.createDefault();
-
   assert.deepEqual(packageInfoService.readPackageInfo(), { packageName: "@sha3/polymarket-snapshot" });
 });

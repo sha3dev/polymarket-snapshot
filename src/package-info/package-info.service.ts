@@ -36,7 +36,8 @@ export class PackageInfoService {
    */
 
   public static createDefault(): PackageInfoService {
-    return new PackageInfoService({ packageName: config.PACKAGE_NAME });
+    const packageInfoService = new PackageInfoService({ packageName: config.PACKAGE_NAME });
+    return packageInfoService;
   }
 
   /**
@@ -44,6 +45,7 @@ export class PackageInfoService {
    */
 
   public readPackageInfo(): PackageInfo {
-    return { packageName: this.packageName };
+    const packageInfo = { packageName: this.packageName };
+    return packageInfo;
   }
 }

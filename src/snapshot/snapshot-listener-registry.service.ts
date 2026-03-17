@@ -61,15 +61,11 @@ export class SnapshotListenerRegistry {
     this.listeners.clear();
   }
 
-  public hasListeners(): boolean {
-    const hasListeners = this.listeners.size > 0;
-    return hasListeners;
-  }
-
   public readActivePairKeys(): Set<string> {
     const activePairKeys = new Set<string>();
+    const hasListeners = this.listeners.size > 0;
 
-    if (this.hasListeners()) {
+    if (hasListeners) {
       for (const asset of this.supportedAssets) {
         for (const window of this.supportedWindows) {
           activePairKeys.add(`${asset}:${window}`);

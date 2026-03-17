@@ -205,7 +205,7 @@ If `getSnapshot()` returns `null`, add at least one listener first. The runtime 
 
 If market columns such as `btc_5m_slug` or `btc_5m_up_price` are missing, `generated_at` is outside the current market interval for that asset/window.
 
-If you want to inspect the live stream visually, run `npm run test:real-snapshot`. It renders a small console dashboard with crypto prices, current market slugs, and `up/down` prices.
+If you want to inspect the live stream visually, run `npm run test:real-snapshot`. It renders a small console dashboard with crypto prices, current market slugs, market start/end values, `price_to_beat`, and `up/down` prices.
 
 If `npm run check` fails, run `npm run fix` and then rerun `npm run check`.
 

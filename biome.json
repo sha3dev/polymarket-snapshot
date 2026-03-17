@@ -2,17 +2,16 @@
   "files": {
     "ignoreUnknown": true,
     "includes": [
-      "README.md",
-      "biome.json",
-      "package.json",
-      "package-lock.json",
-      "tsconfig.json",
-      "tsconfig.build.json",
       "src/**",
       "test/**",
       "scripts/**",
-      "!.code-standards",
-      "!dist"
+      "README.md",
+      "package.json",
+      "tsconfig.json",
+      "tsconfig.build.json",
+      "biome.json",
+      "!!**/.code-standards",
+      "!!**/dist"
     ]
   },
   "formatter": {

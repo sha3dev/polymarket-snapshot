@@ -115,7 +115,6 @@ export class SnapshotPairState {
 
   private applyCryptoPrice(providerSnapshots: Record<CryptoProviderId, ProviderSnapshot>, event: PricePoint): void {
     const providerSnapshot = providerSnapshots[event.provider];
-
     providerSnapshot.price = event.price;
     providerSnapshot.event_ts = event.ts;
   }
@@ -232,38 +231,20 @@ export class SnapshotPairState {
    * @section public:methods
    */
 
-  public readSnapshots(
+  public readPairSnapshots(
     cryptoStateByAsset: Map<SnapshotAsset, Record<CryptoProviderId, ProviderSnapshot>>,
     pairStateByKey: Map<string, PairState>,
     pairKeys: string[],
     generatedAt: number,
+    shouldOnlyIncludeLiveMarkets: boolean,
   ): Map<string, PairSnapshot> {
     const pairSnapshotByPairKey = new Map<string, PairSnapshot>();
 
     for (const pairKey of pairKeys) {
       const pairState = pairStateByKey.get(pairKey) ?? null;
+      const canIncludePair = pairState !== null && (!shouldOnlyIncludeLiveMarkets || this.isGeneratedAtInsideCurrentMarket(pairState, generatedAt));
 
-      if (pairState !== null) {
-        pairSnapshotByPairKey.set(pairKey, this.buildPairSnapshot(cryptoStateByAsset, pairState, generatedAt));
-      }
-    }
-
-    return pairSnapshotByPairKey;
-  }
-
-  public readEmittableSnapshots(
-    cryptoStateByAsset: Map<SnapshotAsset, Record<CryptoProviderId, ProviderSnapshot>>,
-    pairStateByKey: Map<string, PairState>,
-    pairKeys: string[],
-    generatedAt: number,
-  ): Map<string, PairSnapshot> {
-    const pairSnapshotByPairKey = new Map<string, PairSnapshot>();
-
-    for (const pairKey of pairKeys) {
-      const pairState = pairStateByKey.get(pairKey) ?? null;
-      const isInsideMarket = pairState !== null ? this.isGeneratedAtInsideCurrentMarket(pairState, generatedAt) : false;
-
-      if (pairState !== null && isInsideMarket) {
+      if (canIncludePair && pairState !== null) {
         pairSnapshotByPairKey.set(pairKey, this.buildPairSnapshot(cryptoStateByAsset, pairState, generatedAt));
       }
     }
@@ -294,8 +275,9 @@ export class SnapshotPairState {
     if (pairKeys !== null) {
       for (const pairKey of pairKeys) {
         const pairState = pairStateByKey.get(pairKey) ?? null;
+        const canApplyEvent = pairState !== null && this.isEventInsideMarket(pairState, event);
 
-        if (pairState !== null && this.isEventInsideMarket(pairState, event)) {
+        if (canApplyEvent && pairState !== null) {
           this.applyPolymarketEvent(pairState, event);
         }
       }

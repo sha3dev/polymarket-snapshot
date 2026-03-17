@@ -11,7 +11,6 @@ import type { MarketEvent, PolymarketMarket } from "@sha3/polymarket";
 
 import config from "../config.ts";
 import type {
-  PairKeyParts,
   PairSnapshot,
   PairState,
   ProviderSnapshot,
@@ -83,58 +82,28 @@ export class SnapshotPairRuntime {
    * @section private:methods
    */
 
-  private parsePairKey(pairKey: string): PairKeyParts {
+  private parsePairKey(pairKey: string): { asset: SnapshotAsset; window: SnapshotWindow } {
     const segments = pairKey.split(":");
     const pairKeyParts = { asset: segments[0] as SnapshotAsset, window: segments[1] as SnapshotWindow };
     return pairKeyParts;
   }
 
-  private async activateMissingPairs(activePairKeys: Set<string>): Promise<void> {
-    for (const pairKey of activePairKeys) {
-      const isTrackedPair = this.pairStateByKey.has(pairKey);
-
-      if (!isTrackedPair) {
-        const pairKeyParts = this.parsePairKey(pairKey);
-        const pairState: PairState = {
-          asset: pairKeyParts.asset,
-          window: pairKeyParts.window,
-          currentMarket: null,
-          currentSlug: null,
-          priceToBeat: null,
-          hasResolvedPriceToBeat: false,
-          isPriceToBeatLoading: false,
-          priceToBeatTimer: null,
-          rotationTimer: null,
-          up: { assetId: null, price: null, orderBook: null, eventTs: null },
-          down: { assetId: null, price: null, orderBook: null, eventTs: null },
-        };
-
-        this.pairStateByKey.set(pairKey, pairState);
-        await this.activatePairMarket(pairKey, pairState, new Date(this.scheduler.now()));
-      }
-    }
-  }
-
-  private deactivateInactivePairs(activePairKeys: Set<string>): void {
-    const trackedPairKeys = [...this.pairStateByKey.keys()];
-
-    for (const pairKey of trackedPairKeys) {
-      const isStillActive = activePairKeys.has(pairKey);
-
-      if (!isStillActive) {
-        this.deactivatePair(pairKey);
-      }
-    }
-  }
-
-  private deactivatePair(pairKey: string): void {
-    const pairState = this.pairStateByKey.get(pairKey) ?? null;
-
-    if (pairState !== null) {
-      this.clearPairTimers(pairState);
-      this.detachMarketTokens(pairKey, pairState);
-      this.pairStateByKey.delete(pairKey);
-    }
+  private createPairState(pairKey: string): PairState {
+    const pairKeyParts = this.parsePairKey(pairKey);
+    const pairState: PairState = {
+      asset: pairKeyParts.asset,
+      window: pairKeyParts.window,
+      currentMarket: null,
+      currentSlug: null,
+      priceToBeat: null,
+      hasResolvedPriceToBeat: false,
+      isPriceToBeatLoading: false,
+      priceToBeatTimer: null,
+      rotationTimer: null,
+      up: { assetId: null, price: null, orderBook: null, eventTs: null },
+      down: { assetId: null, price: null, orderBook: null, eventTs: null },
+    };
+    return pairState;
   }
 
   private clearPairTimers(pairState: PairState): void {
@@ -170,15 +139,6 @@ export class SnapshotPairRuntime {
     pairState.down = { assetId: market.downTokenId, price: null, orderBook: null, eventTs: null };
   }
 
-  private attachMarketTokens(pairKey: string, pairState: PairState): void {
-    const market = pairState.currentMarket;
-
-    if (market !== null) {
-      this.attachMarketToken(pairKey, market.upTokenId);
-      this.attachMarketToken(pairKey, market.downTokenId);
-    }
-  }
-
   private attachMarketToken(pairKey: string, assetId: string): void {
     const pairKeys = this.pairKeysByPolymarketAssetId.get(assetId) ?? new Set<string>();
     const nextCount = (this.subscriptionCountByAssetId.get(assetId) ?? 0) + 1;
@@ -192,12 +152,12 @@ export class SnapshotPairRuntime {
     }
   }
 
-  private detachMarketTokens(pairKey: string, pairState: PairState): void {
+  private attachMarketTokens(pairKey: string, pairState: PairState): void {
     const market = pairState.currentMarket;
 
     if (market !== null) {
-      this.detachMarketToken(pairKey, market.upTokenId);
-      this.detachMarketToken(pairKey, market.downTokenId);
+      this.attachMarketToken(pairKey, market.upTokenId);
+      this.attachMarketToken(pairKey, market.downTokenId);
     }
   }
 
@@ -227,6 +187,32 @@ export class SnapshotPairRuntime {
     }
   }
 
+  private detachMarketTokens(pairKey: string, pairState: PairState): void {
+    const market = pairState.currentMarket;
+
+    if (market !== null) {
+      this.detachMarketToken(pairKey, market.upTokenId);
+      this.detachMarketToken(pairKey, market.downTokenId);
+    }
+  }
+
+  private removePair(pairKey: string): void {
+    const pairState = this.pairStateByKey.get(pairKey) ?? null;
+
+    if (pairState !== null) {
+      this.clearPairTimers(pairState);
+      this.detachMarketTokens(pairKey, pairState);
+      this.pairStateByKey.delete(pairKey);
+    }
+  }
+
+  private getNextBoundaryMs(window: SnapshotWindow, nowMs: number): number {
+    const windowMinutes = window === "5m" ? 5 : 15;
+    const windowMs = windowMinutes * 60 * 1000;
+    const nextBoundaryMs = Math.floor(nowMs / windowMs) * windowMs + windowMs;
+    return nextBoundaryMs;
+  }
+
   private scheduleMarketRotation(pairKey: string, pairState: PairState, nowMs: number): void {
     const nextBoundaryMs = this.getNextBoundaryMs(pairState.window, nowMs);
     const delayMs = Math.max(nextBoundaryMs + config.MARKET_BOUNDARY_DELAY_MS - nowMs, 0);
@@ -238,21 +224,6 @@ export class SnapshotPairRuntime {
     pairState.rotationTimer = this.scheduler.setTimeout((): void => {
       void this.handleMarketRotation(pairKey);
     }, delayMs);
-  }
-
-  private getNextBoundaryMs(window: SnapshotWindow, nowMs: number): number {
-    const windowMinutes = window === "5m" ? 5 : 15;
-    const windowMs = windowMinutes * 60 * 1000;
-    const nextBoundaryMs = Math.floor(nowMs / windowMs) * windowMs + windowMs;
-    return nextBoundaryMs;
-  }
-
-  private async handleMarketRotation(pairKey: string): Promise<void> {
-    const pairState = this.pairStateByKey.get(pairKey) ?? null;
-
-    if (pairState !== null) {
-      await this.activatePairMarket(pairKey, pairState, new Date(this.scheduler.now()));
-    }
   }
 
   private scheduleMarketActivationRetry(pairKey: string, pairState: PairState): void {
@@ -287,20 +258,11 @@ export class SnapshotPairRuntime {
     }
   }
 
-  private async activatePairMarket(pairKey: string, pairState: PairState, date: Date): Promise<void> {
-    const nextSlug = this.buildSlug(pairState.asset, pairState.window, date);
-    const shouldReloadMarket = nextSlug !== pairState.currentSlug;
+  private async handleMarketRotation(pairKey: string): Promise<void> {
+    const pairState = this.pairStateByKey.get(pairKey) ?? null;
 
-    if (shouldReloadMarket) {
-      await this.reloadPairMarket(pairKey, pairState, nextSlug);
-    }
-
-    if (!shouldReloadMarket) {
-      this.scheduleMarketRotation(pairKey, pairState, this.scheduler.now());
-    }
-
-    if (shouldReloadMarket && pairState.currentSlug === nextSlug) {
-      this.scheduleMarketRotation(pairKey, pairState, this.scheduler.now());
+    if (pairState !== null) {
+      await this.activatePairMarket(pairKey, pairState, new Date(this.scheduler.now()));
     }
   }
 
@@ -318,12 +280,30 @@ export class SnapshotPairRuntime {
     }
   }
 
+  private async activatePairMarket(pairKey: string, pairState: PairState, date: Date): Promise<void> {
+    const nextSlug = this.buildSlug(pairState.asset, pairState.window, date);
+    const shouldReloadMarket = nextSlug !== pairState.currentSlug;
+
+    if (shouldReloadMarket) {
+      await this.reloadPairMarket(pairKey, pairState, nextSlug);
+    }
+
+    if (!shouldReloadMarket) {
+      this.scheduleMarketRotation(pairKey, pairState, this.scheduler.now());
+    }
+
+    if (shouldReloadMarket && pairState.currentSlug === nextSlug) {
+      this.scheduleMarketRotation(pairKey, pairState, this.scheduler.now());
+    }
+  }
+
   private async loadPriceToBeat(pairKey: string): Promise<void> {
     const pairState = this.pairStateByKey.get(pairKey) ?? null;
     const canLoadPriceToBeat = pairState !== null && !pairState.hasResolvedPriceToBeat && !pairState.isPriceToBeatLoading && pairState.currentMarket !== null;
 
     if (canLoadPriceToBeat && pairState !== null) {
       const currentMarket = pairState.currentMarket;
+
       if (currentMarket !== null) {
         pairState.isPriceToBeatLoading = true;
 
@@ -346,13 +326,32 @@ export class SnapshotPairRuntime {
    */
 
   public async syncPairs(activePairKeys: Set<string>): Promise<void> {
-    this.deactivateInactivePairs(activePairKeys);
-    await this.activateMissingPairs(activePairKeys);
+    const trackedPairKeys = [...this.pairStateByKey.keys()];
+
+    for (const trackedPairKey of trackedPairKeys) {
+      const shouldKeepPair = activePairKeys.has(trackedPairKey);
+
+      if (!shouldKeepPair) {
+        this.removePair(trackedPairKey);
+      }
+    }
+
+    for (const activePairKey of activePairKeys) {
+      const isTrackedPair = this.pairStateByKey.has(activePairKey);
+
+      if (!isTrackedPair) {
+        const pairState = this.createPairState(activePairKey);
+        this.pairStateByKey.set(activePairKey, pairState);
+        await this.activatePairMarket(activePairKey, pairState, new Date(this.scheduler.now()));
+      }
+    }
   }
 
   public stop(): void {
-    for (const pairKey of [...this.pairStateByKey.keys()]) {
-      this.deactivatePair(pairKey);
+    const trackedPairKeys = [...this.pairStateByKey.keys()];
+
+    for (const trackedPairKey of trackedPairKeys) {
+      this.removePair(trackedPairKey);
     }
   }
 
@@ -361,13 +360,14 @@ export class SnapshotPairRuntime {
     return trackedPairKeys;
   }
 
-  public readSnapshots(pairKeys: string[], generatedAt: number): Map<string, PairSnapshot> {
-    const pairSnapshotByPairKey = this.pairState.readSnapshots(this.cryptoStateByAsset, this.pairStateByKey, pairKeys, generatedAt);
-    return pairSnapshotByPairKey;
-  }
-
-  public readEmittableSnapshots(pairKeys: string[], generatedAt: number): Map<string, PairSnapshot> {
-    const pairSnapshotByPairKey = this.pairState.readEmittableSnapshots(this.cryptoStateByAsset, this.pairStateByKey, pairKeys, generatedAt);
+  public readPairSnapshots(pairKeys: string[], generatedAt: number, shouldOnlyIncludeLiveMarkets: boolean): Map<string, PairSnapshot> {
+    const pairSnapshotByPairKey = this.pairState.readPairSnapshots(
+      this.cryptoStateByAsset,
+      this.pairStateByKey,
+      pairKeys,
+      generatedAt,
+      shouldOnlyIncludeLiveMarkets,
+    );
     return pairSnapshotByPairKey;
   }
 

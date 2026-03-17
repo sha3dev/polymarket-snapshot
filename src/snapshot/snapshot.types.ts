@@ -26,6 +26,20 @@ export type PolymarketOutcomeSnapshot = {
   eventTs: number | null;
 };
 
+export type PairState = {
+  asset: SnapshotAsset;
+  window: SnapshotWindow;
+  currentMarket: PolymarketMarket | null;
+  currentSlug: string | null;
+  priceToBeat: number | null;
+  hasResolvedPriceToBeat: boolean;
+  isPriceToBeatLoading: boolean;
+  priceToBeatTimer: unknown | null;
+  rotationTimer: unknown | null;
+  up: PolymarketOutcomeSnapshot;
+  down: PolymarketOutcomeSnapshot;
+};
+
 export type PairSnapshot = {
   generated_at: number;
   asset: SnapshotAsset;
@@ -102,18 +116,25 @@ export type AddSnapshotListenerOptions = {
   listener: SnapshotListener;
 };
 
-export type PairState = {
-  asset: SnapshotAsset;
-  window: SnapshotWindow;
-  currentMarket: PolymarketMarket | null;
-  currentSlug: string | null;
-  priceToBeat: number | null;
-  hasResolvedPriceToBeat: boolean;
-  isPriceToBeatLoading: boolean;
-  priceToBeatTimer: unknown | null;
-  rotationTimer: unknown | null;
-  up: PolymarketOutcomeSnapshot;
-  down: PolymarketOutcomeSnapshot;
+export type SnapshotRuntimeOptions = {
+  marketCatalogService: SnapshotMarketCatalog;
+  marketStreamService: SnapshotMarketStream;
+  scheduler: SnapshotScheduler;
+  serviceLogger: SnapshotLogger;
+  supportedAssets: SnapshotAsset[];
+  priceToBeatInitialDelayMs: number;
+  priceToBeatRetryIntervalMs: number;
 };
 
-export type PairKeyParts = { asset: SnapshotAsset; window: SnapshotWindow };
+export type SnapshotServiceRuntimeOptions = {
+  snapshotIntervalMs?: number;
+  cryptoClientFactory: (assets: SnapshotAsset[]) => SnapshotCryptoClient;
+  marketCatalogService: SnapshotMarketCatalog;
+  marketStreamService: SnapshotMarketStream;
+  scheduler: SnapshotScheduler;
+  logger: SnapshotLogger;
+  supportedAssets: SnapshotAsset[];
+  supportedWindows: SnapshotWindow[];
+  priceToBeatInitialDelayMs?: number;
+  priceToBeatRetryIntervalMs?: number;
+};

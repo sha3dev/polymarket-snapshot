@@ -19,32 +19,16 @@ import type {
   Snapshot,
   SnapshotAsset,
   SnapshotCryptoClient,
+  SnapshotListener,
   SnapshotLogger,
   SnapshotMarketCatalog,
   SnapshotMarketStream,
   SnapshotScheduler,
-  SnapshotWindow,
+  SnapshotServiceRuntimeOptions,
 } from "./snapshot.types.ts";
 import { SnapshotListenerRegistry } from "./snapshot-listener-registry.service.ts";
 import { SnapshotPairRuntime } from "./snapshot-pair-runtime.service.ts";
 import { SnapshotTicker } from "./snapshot-ticker.service.ts";
-
-/**
- * @section types
- */
-
-type SnapshotRuntimeOptions = {
-  snapshotIntervalMs?: number;
-  cryptoClientFactory: (assets: SnapshotAsset[]) => SnapshotCryptoClient;
-  marketCatalogService: SnapshotMarketCatalog;
-  marketStreamService: SnapshotMarketStream;
-  scheduler: SnapshotScheduler;
-  logger: SnapshotLogger;
-  supportedAssets: SnapshotAsset[];
-  supportedWindows: SnapshotWindow[];
-  priceToBeatInitialDelayMs?: number;
-  priceToBeatRetryIntervalMs?: number;
-};
 
 /**
  * @section class
@@ -58,11 +42,6 @@ export class SnapshotService {
   private readonly snapshotIntervalMs: number;
   private readonly priceToBeatInitialDelayMs: number;
   private readonly priceToBeatRetryIntervalMs: number;
-
-  /**
-   * @section private:attributes
-   */
-
   private readonly supportedAssets: SnapshotAsset[];
   private readonly cryptoClientFactory: (assets: SnapshotAsset[]) => SnapshotCryptoClient;
   private readonly marketCatalogService: SnapshotMarketCatalog;
@@ -85,8 +64,8 @@ export class SnapshotService {
    * @section constructor
    */
 
-  public constructor(snapshotIntervalMs?: number, runtimeOptions?: SnapshotRuntimeOptions) {
-    const scheduler: SnapshotScheduler = {
+  public constructor(snapshotIntervalMs?: number, runtimeOptions?: SnapshotServiceRuntimeOptions) {
+    const defaultScheduler: SnapshotScheduler = {
       now(): number {
         const now = Date.now();
         return now;
@@ -107,9 +86,8 @@ export class SnapshotService {
     this.cryptoClientFactory = runtimeOptions?.cryptoClientFactory ?? ((assets): SnapshotCryptoClient => CryptoFeedClient.create({ symbols: assets }));
     this.marketCatalogService = runtimeOptions?.marketCatalogService ?? MarketCatalogService.createDefault();
     this.marketStreamService = runtimeOptions?.marketStreamService ?? MarketStreamService.createDefault();
-    this.scheduler = runtimeOptions?.scheduler ?? scheduler;
+    this.scheduler = runtimeOptions?.scheduler ?? defaultScheduler;
     this.serviceLogger = runtimeOptions?.logger ?? logger;
-    this.ensureSupportedSnapshotInterval(this.snapshotIntervalMs);
     this.listenerRegistry = new SnapshotListenerRegistry({ supportedAssets: this.supportedAssets, supportedWindows });
     this.pairRuntime = new SnapshotPairRuntime({
       marketCatalogService: this.marketCatalogService,
@@ -129,6 +107,7 @@ export class SnapshotService {
     this.isMarketStreamConnected = false;
     this.isRuntimeSyncActive = false;
     this.isRuntimeSyncQueued = false;
+    this.ensureSupportedSnapshotInterval(this.snapshotIntervalMs);
   }
 
   /**
@@ -201,16 +180,13 @@ export class SnapshotService {
   }
 
   private async replaceCryptoClient(activeAssets: SnapshotAsset[], activeAssetSignature: string): Promise<void> {
-    const previousSubscription = this.cryptoSubscription;
-    const previousClient = this.cryptoClient;
-
-    if (previousSubscription !== null) {
-      previousSubscription.unsubscribe();
+    if (this.cryptoSubscription !== null) {
+      this.cryptoSubscription.unsubscribe();
       this.cryptoSubscription = null;
     }
 
-    if (previousClient !== null) {
-      await previousClient.disconnect();
+    if (this.cryptoClient !== null) {
+      await this.cryptoClient.disconnect();
       this.cryptoClient = null;
     }
 
@@ -224,13 +200,6 @@ export class SnapshotService {
       });
       this.cryptoClient = cryptoClient;
     }
-  }
-
-  private async stopRuntime(): Promise<void> {
-    this.ticker.stop();
-    this.pairRuntime.stop();
-    this.lastEmittedGeneratedAt = null;
-    await this.stopRuntimeConnections();
   }
 
   private async stopRuntimeConnections(): Promise<void> {
@@ -255,6 +224,13 @@ export class SnapshotService {
     }
 
     this.activeCryptoAssetSignature = "";
+  }
+
+  private async stopRuntime(): Promise<void> {
+    this.ticker.stop();
+    this.pairRuntime.stop();
+    this.lastEmittedGeneratedAt = null;
+    await this.stopRuntimeConnections();
   }
 
   private handleCryptoEvent(event: FeedEvent): void {
@@ -291,7 +267,6 @@ export class SnapshotService {
 
   private assignAssetSnapshotFields(snapshot: Snapshot, pairSnapshot: PairSnapshot): void {
     const assetPrefix = pairSnapshot.asset;
-
     snapshot[`${assetPrefix}_binance_price`] = pairSnapshot.binance_price;
     snapshot[`${assetPrefix}_binance_order_book_json`] = pairSnapshot.binance_order_book_json;
     snapshot[`${assetPrefix}_binance_event_ts`] = pairSnapshot.binance_event_ts;
@@ -325,7 +300,7 @@ export class SnapshotService {
 
   private emitSnapshotsAt(generatedAt: number): void {
     const trackedPairKeys = this.pairRuntime.readTrackedPairKeys();
-    const pairSnapshotByPairKey = this.pairRuntime.readEmittableSnapshots(trackedPairKeys, generatedAt);
+    const pairSnapshotByPairKey = this.pairRuntime.readPairSnapshots(trackedPairKeys, generatedAt, true);
     const shouldEmitSnapshot = this.lastEmittedGeneratedAt !== generatedAt && pairSnapshotByPairKey.size > 0;
 
     if (shouldEmitSnapshot) {
@@ -343,7 +318,7 @@ export class SnapshotService {
     this.queueRuntimeSync();
   }
 
-  public removeSnapshotListener(listener: (snapshot: Snapshot) => void): void {
+  public removeSnapshotListener(listener: SnapshotListener): void {
     this.listenerRegistry.removeListener(listener);
     this.queueRuntimeSync();
   }
@@ -351,7 +326,7 @@ export class SnapshotService {
   public getSnapshot(): Snapshot | null {
     const trackedPairKeys = this.pairRuntime.readTrackedPairKeys();
     const generatedAt = this.ticker.readAlignedSnapshotAtMs(this.scheduler.now());
-    const pairSnapshotByPairKey = this.pairRuntime.readSnapshots(trackedPairKeys, generatedAt);
+    const pairSnapshotByPairKey = this.pairRuntime.readPairSnapshots(trackedPairKeys, generatedAt, false);
     const snapshot = pairSnapshotByPairKey.size > 0 ? this.buildSnapshot(pairSnapshotByPairKey) : null;
     return snapshot;
   }

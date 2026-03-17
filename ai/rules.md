@@ -24,15 +24,14 @@ Read this file together with `AGENTS.md` and `ai/contract.json` before making im
 
 ## Compactness
 
-- If a declaration, expression, call, object literal, array literal, import, or constructor call fits on one line within the configured line limit, it MUST stay on one line.
-- Prefer fewer line breaks when readability is preserved.
-- Do not split code into multiple lines just because it is “safer”; only split when it no longer fits cleanly or readability would suffer.
+- Let Biome decide the final line wrapping.
+- Prefer compact code when writing or refactoring, but do not force single-line objects, callbacks, or other constructs that Biome keeps multiline.
+- Do not split code into multiple lines just because it is “safer”, and do not manually collapse formatter-preserved multiline layouts.
 
 ## Simple Callbacks
 
-- Simple callbacks in `map`, `filter`, `reduce`, `some`, `every`, `find`, and `forEach` MUST use concise arrow functions when the body is a single expression.
-- Do not use block-bodied callbacks with explicit `return` for simple expressions.
-- If a callback fits on one line, keep it on one line.
+- Prefer concise arrow callbacks in `map`, `filter`, `reduce`, `some`, `every`, `find`, and `forEach` when writing new code.
+- Do not rewrite Biome-stable block-bodied callbacks solely to satisfy a style preference.
 
 ## Errors
 
@@ -84,7 +83,6 @@ Read this file together with `AGENTS.md` and `ai/contract.json` before making im
 - `type-only-imports`: Imports used only in type positions must use import type. (verify, confidence: high)
 - `prefer-types-over-interfaces`: Interfaces are forbidden for local modeling unless they are part of the public contract exported from src/index.ts. (verify, confidence: high)
 - `control-flow-braces`: if, else, for, while, and do blocks must always use braces. (verify, confidence: high)
-- `concise-simple-callbacks`: Simple callbacks must use concise arrow expressions instead of block bodies with an explicit return. (verify, confidence: high)
 - `cross-feature-entrypoint-imports`: Cross-feature imports must go through an explicit feature entrypoint rather than another feature's internal file. (verify, confidence: high)
 - `ambiguous-feature-filenames`: Feature code must not use ambiguous file names such as helpers.ts, utils.ts, or common.ts. (verify, confidence: high)
 - `typed-error-must-be-used`: Custom error types must be consumed by logic that distinguishes them from plain failures. (verify, confidence: high)
@@ -100,7 +98,8 @@ Read this file together with `AGENTS.md` and `ai/contract.json` before making im
 
 ## Active Heuristic Rules
 
-- `compact-single-line-constructs`: Declarations, calls, imports, arrays, and objects that fit on one line should not be spread across multiple lines. (verify, confidence: high)
+- `concise-simple-callbacks`: Prefer concise arrow callbacks when Biome already keeps them concise; do not rewrite formatter-stable block callbacks just for style. (guidance, confidence: medium)
+- `compact-single-line-constructs`: Prefer compact layouts, but let Biome decide final wrapping instead of forcing single-line constructs the formatter keeps multiline. (guidance, confidence: medium)
 - `feature-first-layout`: Projects with feature modules must keep domain code under feature folders instead of mixing flat modules at src/ root. (verify, confidence: medium)
 - `restricted-shared-boundaries`: src/app and src/shared should exist only when real composition or cross-feature sharing justifies them. (verify, confidence: medium)
 - `types-file-justification`: Dedicated .types.ts files should only exist when they contain substantial shared feature types. (verify, confidence: medium)

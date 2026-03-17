@@ -12,6 +12,7 @@ import type {
   SnapshotMarketCatalog,
   SnapshotMarketStream,
   SnapshotScheduler,
+  SnapshotServiceRuntimeOptions,
   SnapshotWindow,
 } from "../src/snapshot/snapshot.types.ts";
 
@@ -24,27 +25,12 @@ type Fixture = {
   marketStream: FakeMarketStream;
   scheduler: FakeScheduler;
   service: SnapshotService;
-  marketCatalog: FakeMarketCatalog;
 };
 
 type SnapshotServiceInternals = { emitSnapshotsAt(generatedAt: number): void };
 
 type SnapshotServiceTestConstructor = {
-  new (
-    snapshotIntervalMs?: number,
-    runtimeOptions?: {
-      snapshotIntervalMs?: number;
-      cryptoClientFactory: (assets: SnapshotAsset[]) => SnapshotCryptoClient;
-      marketCatalogService: SnapshotMarketCatalog;
-      marketStreamService: SnapshotMarketStream;
-      scheduler: SnapshotScheduler;
-      logger: SnapshotLogger;
-      supportedAssets: SnapshotAsset[];
-      supportedWindows: SnapshotWindow[];
-      priceToBeatInitialDelayMs?: number;
-      priceToBeatRetryIntervalMs?: number;
-    },
-  ): SnapshotService;
+  new (snapshotIntervalMs?: number, runtimeOptions?: SnapshotServiceRuntimeOptions): SnapshotService;
 };
 
 const SUPPORTED_ASSETS: SnapshotAsset[] = ["btc", "eth"];
@@ -311,7 +297,7 @@ function createFixture(nowMs = Date.parse(START_ISO), priceToBeatQueueBySlug?: M
       priceToBeatRetryIntervalMs: 50,
     },
   ]) as SnapshotService;
-  const fixture = { cryptoClient, marketStream, scheduler, service, marketCatalog };
+  const fixture = { cryptoClient, marketStream, scheduler, service };
   return fixture;
 }
 

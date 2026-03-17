@@ -76,9 +76,13 @@ function buildMarketLine(snapshot: Snapshot, asset: SnapshotAsset, window: Snaps
   const prefix = `${asset}_${window}`;
   const slug = readSnapshotString(snapshot, `${prefix}_slug`) ?? "-";
   const priceToBeat = formatPrice(readSnapshotNumber(snapshot, `${prefix}_price_to_beat`)).padStart(10);
+  const marketStart = readSnapshotString(snapshot, `${prefix}_market_start`) ?? "-";
+  const marketEnd = readSnapshotString(snapshot, `${prefix}_market_end`) ?? "-";
   const marketLine = [
     `${asset.toUpperCase()} ${window.padEnd(3)} |`,
     `slug ${slug}`,
+    `| start ${marketStart}`,
+    `| end ${marketEnd}`,
     `| beat ${priceToBeat}`,
     `| up ${formatNumber(readSnapshotNumber(snapshot, `${prefix}_up_price`)).padStart(8)}`,
     `| down ${formatNumber(readSnapshotNumber(snapshot, `${prefix}_down_price`)).padStart(8)}`,
@@ -193,9 +197,11 @@ function restoreOutputWriters(originalStdoutWrite: StreamWrite, originalStderrWr
 function createRenderingState(): { readIsRendering(): boolean; setIsRendering(isNextRendering: boolean): void } {
   let isRendering = false;
   const readIsRendering = (): boolean => isRendering;
+
   function setIsRendering(isNextRendering: boolean): void {
     isRendering = isNextRendering;
   }
+
   return { readIsRendering, setIsRendering };
 }
 
@@ -205,6 +211,7 @@ function createOutputRestoreSet(consoleLines: string[], renderCurrentDashboard: 
   const renderingState = createRenderingState();
   const stdoutOptions = { originalWrite: originalStdoutWrite, consoleLines, renderCurrentDashboard, ...renderingState };
   const stderrOptions = { originalWrite: originalStderrWrite, consoleLines, renderCurrentDashboard, ...renderingState };
+
   function writeDashboard(output: string): void {
     originalStdoutWrite(output);
   }
