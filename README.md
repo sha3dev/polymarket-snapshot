@@ -182,6 +182,7 @@ Configuration lives in [config.ts](/Users/jc/Documents/GitHub/polymarket-snapsho
 - `npm run typecheck`
 - `npm run test`
 - `npm run check`
+- `npm run test:real-snapshot`: runs the optional live console dashboard for 60 seconds
 
 ## Structure
 
@@ -196,6 +197,8 @@ Configuration lives in [config.ts](/Users/jc/Documents/GitHub/polymarket-snapsho
 If `getSnapshot()` returns `null`, add at least one listener first. The runtime is lazy and does not start until a listener is registered.
 
 If market columns such as `btc_5m_slug` or `btc_5m_up_price` are missing, `generated_at` is outside the current market interval for that asset/window.
+
+If you want to inspect the live stream visually, run `npm run test:real-snapshot`. It renders a small console dashboard with crypto prices, current market slugs, and `up/down` prices.
 
 If `npm run check` fails, run `npm run fix` and then rerun `npm run check`.
 
