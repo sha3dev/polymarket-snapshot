@@ -181,11 +181,17 @@ export class SnapshotPairState {
     }
   }
 
-  private buildMarketSnapshotFields(pairState: PairState, generatedAt: number): Pick<PairSnapshot, "is_live_market" | "slug" | "price_to_beat"> {
+  private buildMarketSnapshotFields(
+    pairState: PairState,
+    generatedAt: number,
+  ): Pick<PairSnapshot, "is_live_market" | "slug" | "market_start" | "market_end" | "price_to_beat"> {
     const isLiveMarket = this.isGeneratedAtInsideCurrentMarket(pairState, generatedAt);
+    const market = pairState.currentMarket;
     const slug = isLiveMarket ? pairState.currentSlug : null;
+    const marketStart = isLiveMarket && market !== null ? market.start.toISOString() : null;
+    const marketEnd = isLiveMarket && market !== null ? market.end.toISOString() : null;
     const priceToBeat = isLiveMarket ? pairState.priceToBeat : null;
-    const marketSnapshotFields = { is_live_market: isLiveMarket, slug, price_to_beat: priceToBeat };
+    const marketSnapshotFields = { is_live_market: isLiveMarket, slug, market_start: marketStart, market_end: marketEnd, price_to_beat: priceToBeat };
     return marketSnapshotFields;
   }
 

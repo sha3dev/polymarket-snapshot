@@ -29,6 +29,7 @@ Use this package when you want one flat snapshot object, with snake_case columns
 - Emits one flat snapshot that includes all configured assets and all configured windows.
 - Keeps crypto fields asset-scoped and Polymarket fields asset-and-window-scoped.
 - Fills `asset_window_price_to_beat` columns as soon as Polymarket exposes them for the active market.
+- Includes `asset_window_market_start` and `asset_window_market_end` as ISO timestamps for the active market.
 - Omits market-window columns when `generated_at` is outside the market interval.
 
 ## Installation
@@ -144,6 +145,8 @@ Market fields are asset-and-window-scoped. They are included only when `generate
 ```ts
 type LiveMarketFields = {
   btc_5m_slug: string | null;
+  btc_5m_market_start: string | null;
+  btc_5m_market_end: string | null;
   btc_5m_price_to_beat: number | null;
   btc_5m_up_asset_id: string | null;
   btc_5m_up_price: number | null;

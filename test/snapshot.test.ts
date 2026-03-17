@@ -369,9 +369,17 @@ test("SnapshotService emits one flat snapshot with live market slugs and market 
 
   if (firstSnapshot !== undefined) {
     assert.equal(readSnapshotString(firstSnapshot, "btc_5m_slug"), BTC_FIVE_MINUTE_SLUG);
+    assert.equal(readSnapshotString(firstSnapshot, "btc_5m_market_start"), START_ISO);
+    assert.equal(readSnapshotString(firstSnapshot, "btc_5m_market_end"), FIVE_MINUTE_END_ISO);
     assert.equal(readSnapshotString(firstSnapshot, "btc_15m_slug"), BTC_FIFTEEN_MINUTE_SLUG);
+    assert.equal(readSnapshotString(firstSnapshot, "btc_15m_market_start"), START_ISO);
+    assert.equal(readSnapshotString(firstSnapshot, "btc_15m_market_end"), FIFTEEN_MINUTE_END_ISO);
     assert.equal(readSnapshotString(firstSnapshot, "eth_5m_slug"), ETH_FIVE_MINUTE_SLUG);
+    assert.equal(readSnapshotString(firstSnapshot, "eth_5m_market_start"), START_ISO);
+    assert.equal(readSnapshotString(firstSnapshot, "eth_5m_market_end"), FIVE_MINUTE_END_ISO);
     assert.equal(readSnapshotString(firstSnapshot, "eth_15m_slug"), ETH_FIFTEEN_MINUTE_SLUG);
+    assert.equal(readSnapshotString(firstSnapshot, "eth_15m_market_start"), START_ISO);
+    assert.equal(readSnapshotString(firstSnapshot, "eth_15m_market_end"), FIFTEEN_MINUTE_END_ISO);
     assert.equal(readSnapshotString(firstSnapshot, "btc_5m_up_asset_id"), `up-${BTC_FIVE_MINUTE_SLUG}`);
     assert.equal(Reflect.get(firstSnapshot, "btc_5m_is_live_market"), undefined);
   }
@@ -402,6 +410,8 @@ test("SnapshotService keeps the latest crypto and market values in the flat snap
     assert.equal(readSnapshotNumber(snapshot, "btc_binance_price"), 65_000);
     assert.equal(readSnapshotNumber(snapshot, "btc_coinbase_event_ts"), 120);
     assert.equal(readSnapshotString(snapshot, "btc_5m_slug"), BTC_FIVE_MINUTE_SLUG);
+    assert.equal(readSnapshotString(snapshot, "btc_5m_market_start"), START_ISO);
+    assert.equal(readSnapshotString(snapshot, "btc_5m_market_end"), FIVE_MINUTE_END_ISO);
     assert.equal(readSnapshotNumber(snapshot, "btc_5m_price_to_beat"), 64_250);
     assert.equal(readSnapshotNumber(snapshot, "btc_5m_up_price"), 0.62);
     assert.equal(

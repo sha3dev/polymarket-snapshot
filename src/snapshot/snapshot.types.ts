@@ -32,6 +32,8 @@ export type PairSnapshot = {
   window: SnapshotWindow;
   is_live_market: boolean;
   slug: string | null;
+  market_start: string | null;
+  market_end: string | null;
   price_to_beat: number | null;
   up_asset_id: string | null;
   up_price: number | null;

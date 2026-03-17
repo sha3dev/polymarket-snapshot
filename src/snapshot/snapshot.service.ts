@@ -275,6 +275,8 @@ export class SnapshotService {
 
     if (pairSnapshot.is_live_market) {
       snapshot[`${pairSnapshotPrefix}_slug`] = pairSnapshot.slug;
+      snapshot[`${pairSnapshotPrefix}_market_start`] = pairSnapshot.market_start;
+      snapshot[`${pairSnapshotPrefix}_market_end`] = pairSnapshot.market_end;
       snapshot[`${pairSnapshotPrefix}_price_to_beat`] = pairSnapshot.price_to_beat;
       snapshot[`${pairSnapshotPrefix}_up_asset_id`] = pairSnapshot.up_asset_id;
       snapshot[`${pairSnapshotPrefix}_up_price`] = pairSnapshot.up_price;
