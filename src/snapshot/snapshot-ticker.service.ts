@@ -13,9 +13,13 @@ type SnapshotTickerOptions = {
   snapshotIntervalMs: number;
 };
 
+/**
+ * @section class
+ */
+
 export class SnapshotTicker {
   /**
-   * @section private:properties
+   * @section private:attributes
    */
 
   private readonly scheduler: SnapshotScheduler;

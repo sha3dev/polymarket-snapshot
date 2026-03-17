@@ -5,6 +5,10 @@
 type PaymentInput = { amount: number; currency: string; metadata: Record<string, string> };
 type PaymentDraft = { amount: number; currency: string; metadata: Record<string, string> };
 
+/**
+ * @section class
+ */
+
 export class PaymentNormalizer {
   /**
    * @section factory

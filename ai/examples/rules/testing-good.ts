@@ -11,6 +11,10 @@ const millisecondsPerDay = 24 * 60 * 60 * 1000;
 type Invoice = { issuedAt: Date };
 type EscalationDecision = "manual-review" | "no-escalation";
 
+/**
+ * @section class
+ */
+
 export class InvoiceEscalationPolicy {
   /**
    * @section factory

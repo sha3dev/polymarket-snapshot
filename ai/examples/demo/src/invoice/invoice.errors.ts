@@ -4,9 +4,13 @@
 
 // empty
 
+/**
+ * @section class
+ */
+
 export class InvalidInvoiceCommandError extends Error {
   /**
-   * @section private:properties
+   * @section private:attributes
    */
 
   private readonly reason: string;

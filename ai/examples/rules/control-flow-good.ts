@@ -4,9 +4,13 @@
 
 type FeatureFlagMap = Record<string, boolean>;
 
+/**
+ * @section class
+ */
+
 export class FeatureGate {
   /**
-   * @section private:properties
+   * @section private:attributes
    */
 
   private readonly flags: FeatureFlagMap;

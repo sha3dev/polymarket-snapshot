@@ -4,6 +4,10 @@
 
 type InvoiceStatus = "paid" | "void" | "pending";
 
+/**
+ * @section class
+ */
+
 export class InvoiceStatusPresenter {
   /**
    * @section factory

@@ -11,9 +11,13 @@ const defaultInvoicePrefix = "INV";
 type Clock = () => Date;
 type IdFactory = () => string;
 
+/**
+ * @section class
+ */
+
 export class InvoiceIdBuilder {
   /**
-   * @section private:properties
+   * @section private:attributes
    */
 
   private readonly clock: Clock;

@@ -2,10 +2,10 @@
  * @section imports:externals
  */
 
+import type { FeedEvent } from "@sha3/crypto";
 import { CryptoFeedClient } from "@sha3/crypto";
-import type { CryptoProviderId, FeedEvent, OrderBookSnapshot, PricePoint } from "@sha3/crypto";
+import type { MarketEvent } from "@sha3/polymarket";
 import { MarketCatalogService, MarketStreamService } from "@sha3/polymarket";
-import type { MarketEvent, OrderBook, PolymarketMarket } from "@sha3/polymarket";
 
 /**
  * @section imports:internals
@@ -13,24 +13,40 @@ import type { MarketEvent, OrderBook, PolymarketMarket } from "@sha3/polymarket"
 
 import config from "../config.ts";
 import logger from "../logger.ts";
-import { SnapshotListenerRegistry } from "./snapshot-listener-registry.service.ts";
-import { SnapshotPairRuntime } from "./snapshot-pair-runtime.service.ts";
-import { SnapshotTicker } from "./snapshot-ticker.service.ts";
 import type {
   AddSnapshotListenerOptions,
-  GetSnapshotOptions,
+  PairSnapshot,
   Snapshot,
   SnapshotAsset,
   SnapshotCryptoClient,
-  SnapshotListener,
   SnapshotLogger,
   SnapshotMarketCatalog,
   SnapshotMarketStream,
   SnapshotScheduler,
-  SnapshotServiceOptions,
-  SnapshotSubscription,
   SnapshotWindow,
 } from "./snapshot.types.ts";
+import { SnapshotListenerRegistry } from "./snapshot-listener-registry.service.ts";
+import { SnapshotPairRuntime } from "./snapshot-pair-runtime.service.ts";
+import { SnapshotTicker } from "./snapshot-ticker.service.ts";
+
+/**
+ * @section types
+ */
+
+type SnapshotRuntimeOptions = {
+  snapshotIntervalMs?: number;
+  cryptoClientFactory: (assets: SnapshotAsset[]) => SnapshotCryptoClient;
+  marketCatalogService: SnapshotMarketCatalog;
+  marketStreamService: SnapshotMarketStream;
+  scheduler: SnapshotScheduler;
+  logger: SnapshotLogger;
+  supportedAssets: SnapshotAsset[];
+  supportedWindows: SnapshotWindow[];
+};
+
+/**
+ * @section class
+ */
 
 export class SnapshotService {
   /**
@@ -38,15 +54,12 @@ export class SnapshotService {
    */
 
   private readonly snapshotIntervalMs: number;
-  private readonly priceToBeatInitialDelayMs: number;
-  private readonly priceToBeatRetryIntervalMs: number;
 
   /**
-   * @section private:properties
+   * @section private:attributes
    */
 
   private readonly supportedAssets: SnapshotAsset[];
-  private readonly supportedWindows: SnapshotWindow[];
   private readonly cryptoClientFactory: (assets: SnapshotAsset[]) => SnapshotCryptoClient;
   private readonly marketCatalogService: SnapshotMarketCatalog;
   private readonly marketStreamService: SnapshotMarketStream;
@@ -55,9 +68,9 @@ export class SnapshotService {
   private readonly listenerRegistry: SnapshotListenerRegistry;
   private readonly pairRuntime: SnapshotPairRuntime;
   private readonly ticker: SnapshotTicker;
-  private readonly lastEmittedGeneratedAtByPairKey: Map<string, number>;
+  private lastEmittedGeneratedAt: number | null;
   private marketListenerRemover: (() => void) | null;
-  private cryptoSubscription: SnapshotSubscription | null;
+  private cryptoSubscription: { unsubscribe(): void } | null;
   private cryptoClient: SnapshotCryptoClient | null;
   private activeCryptoAssetSignature: string;
   private isMarketStreamConnected: boolean;
@@ -68,8 +81,8 @@ export class SnapshotService {
    * @section constructor
    */
 
-  public constructor(options?: SnapshotServiceOptions) {
-    const scheduler: SnapshotScheduler = options?.scheduler ?? {
+  public constructor(snapshotIntervalMs?: number, runtimeOptions?: SnapshotRuntimeOptions) {
+    const scheduler: SnapshotScheduler = {
       now(): number {
         const now = Date.now();
         return now;
@@ -81,37 +94,26 @@ export class SnapshotService {
       clearTimeout(timer: unknown): void {
         clearTimeout(timer as NodeJS.Timeout);
       },
-      setInterval(listener: () => void, delayMs: number): unknown {
-        const timer = globalThis.setInterval(listener, delayMs);
-        return timer;
-      },
-      clearInterval(timer: unknown): void {
-        clearInterval(timer as NodeJS.Timeout);
-      },
     };
-    this.snapshotIntervalMs = options?.snapshotIntervalMs ?? config.DEFAULT_SNAPSHOT_INTERVAL_MS;
-    this.priceToBeatInitialDelayMs = options?.priceToBeatInitialDelayMs ?? config.DEFAULT_PRICE_TO_BEAT_INITIAL_DELAY_MS;
-    this.priceToBeatRetryIntervalMs = options?.priceToBeatRetryIntervalMs ?? config.DEFAULT_PRICE_TO_BEAT_RETRY_INTERVAL_MS;
-    this.supportedAssets = [...(options?.supportedAssets ?? config.DEFAULT_SUPPORTED_ASSETS)];
-    this.supportedWindows = [...(options?.supportedWindows ?? config.DEFAULT_SUPPORTED_WINDOWS)];
-    this.cryptoClientFactory = options?.cryptoClientFactory ?? ((assets) => CryptoFeedClient.create({ symbols: assets }));
-    this.marketCatalogService = options?.marketCatalogService ?? MarketCatalogService.createDefault();
-    this.marketStreamService = options?.marketStreamService ?? MarketStreamService.createDefault();
-    this.scheduler = scheduler;
-    this.serviceLogger = options?.logger ?? logger;
+    this.snapshotIntervalMs = runtimeOptions?.snapshotIntervalMs ?? snapshotIntervalMs ?? config.DEFAULT_SNAPSHOT_INTERVAL_MS;
+    this.supportedAssets = [...(runtimeOptions?.supportedAssets ?? config.DEFAULT_SUPPORTED_ASSETS)];
+    const supportedWindows = [...(runtimeOptions?.supportedWindows ?? config.DEFAULT_SUPPORTED_WINDOWS)];
+    this.cryptoClientFactory = runtimeOptions?.cryptoClientFactory ?? ((assets): SnapshotCryptoClient => CryptoFeedClient.create({ symbols: assets }));
+    this.marketCatalogService = runtimeOptions?.marketCatalogService ?? MarketCatalogService.createDefault();
+    this.marketStreamService = runtimeOptions?.marketStreamService ?? MarketStreamService.createDefault();
+    this.scheduler = runtimeOptions?.scheduler ?? scheduler;
+    this.serviceLogger = runtimeOptions?.logger ?? logger;
     this.ensureSupportedSnapshotInterval(this.snapshotIntervalMs);
-    this.listenerRegistry = new SnapshotListenerRegistry({ supportedAssets: this.supportedAssets, supportedWindows: this.supportedWindows });
+    this.listenerRegistry = new SnapshotListenerRegistry({ supportedAssets: this.supportedAssets, supportedWindows });
     this.pairRuntime = new SnapshotPairRuntime({
       marketCatalogService: this.marketCatalogService,
       marketStreamService: this.marketStreamService,
       scheduler: this.scheduler,
       serviceLogger: this.serviceLogger,
       supportedAssets: this.supportedAssets,
-      priceToBeatInitialDelayMs: this.priceToBeatInitialDelayMs,
-      priceToBeatRetryIntervalMs: this.priceToBeatRetryIntervalMs,
     });
     this.ticker = new SnapshotTicker({ scheduler: this.scheduler, snapshotIntervalMs: this.snapshotIntervalMs });
-    this.lastEmittedGeneratedAtByPairKey = new Map<string, number>();
+    this.lastEmittedGeneratedAt = null;
     this.marketListenerRemover = null;
     this.cryptoSubscription = null;
     this.cryptoClient = null;
@@ -119,15 +121,6 @@ export class SnapshotService {
     this.isMarketStreamConnected = false;
     this.isRuntimeSyncActive = false;
     this.isRuntimeSyncQueued = false;
-  }
-
-  /**
-   * @section factory
-   */
-
-  public static createDefault(options?: SnapshotServiceOptions): SnapshotService {
-    const service = new SnapshotService(options);
-    return service;
   }
 
   /**
@@ -228,6 +221,7 @@ export class SnapshotService {
   private async stopRuntime(): Promise<void> {
     this.ticker.stop();
     this.pairRuntime.stop();
+    this.lastEmittedGeneratedAt = null;
     await this.stopRuntimeConnections();
   }
 
@@ -263,27 +257,70 @@ export class SnapshotService {
     this.pairRuntime.handlePolymarketEvent(event);
   }
 
-  private buildPendingSnapshotByPairKey(snapshotByPairKey: Map<string, Snapshot>): Map<string, Snapshot> {
-    const pendingSnapshotByPairKey = new Map<string, Snapshot>();
+  private buildPairSnapshotPrefix(pairSnapshot: PairSnapshot): string {
+    const pairSnapshotPrefix = `${pairSnapshot.asset}_${pairSnapshot.window}`;
+    return pairSnapshotPrefix;
+  }
 
-    for (const [pairKey, snapshot] of snapshotByPairKey.entries()) {
-      const lastGeneratedAt = this.lastEmittedGeneratedAtByPairKey.get(pairKey) ?? null;
-      const shouldEmitSnapshot = lastGeneratedAt !== snapshot.generatedAt;
+  private assignPairSnapshotFields(snapshot: Snapshot, pairSnapshot: PairSnapshot): void {
+    const pairSnapshotPrefix = this.buildPairSnapshotPrefix(pairSnapshot);
 
-      if (shouldEmitSnapshot) {
-        pendingSnapshotByPairKey.set(pairKey, snapshot);
-        this.lastEmittedGeneratedAtByPairKey.set(pairKey, snapshot.generatedAt);
-      }
+    if (pairSnapshot.is_live_market) {
+      snapshot[`${pairSnapshotPrefix}_slug`] = pairSnapshot.slug;
+      snapshot[`${pairSnapshotPrefix}_up_asset_id`] = pairSnapshot.up_asset_id;
+      snapshot[`${pairSnapshotPrefix}_up_price`] = pairSnapshot.up_price;
+      snapshot[`${pairSnapshotPrefix}_up_order_book_json`] = pairSnapshot.up_order_book_json;
+      snapshot[`${pairSnapshotPrefix}_up_event_ts`] = pairSnapshot.up_event_ts;
+      snapshot[`${pairSnapshotPrefix}_down_asset_id`] = pairSnapshot.down_asset_id;
+      snapshot[`${pairSnapshotPrefix}_down_price`] = pairSnapshot.down_price;
+      snapshot[`${pairSnapshotPrefix}_down_order_book_json`] = pairSnapshot.down_order_book_json;
+      snapshot[`${pairSnapshotPrefix}_down_event_ts`] = pairSnapshot.down_event_ts;
+    }
+  }
+
+  private assignAssetSnapshotFields(snapshot: Snapshot, pairSnapshot: PairSnapshot): void {
+    const assetPrefix = pairSnapshot.asset;
+
+    snapshot[`${assetPrefix}_binance_price`] = pairSnapshot.binance_price;
+    snapshot[`${assetPrefix}_binance_order_book_json`] = pairSnapshot.binance_order_book_json;
+    snapshot[`${assetPrefix}_binance_event_ts`] = pairSnapshot.binance_event_ts;
+    snapshot[`${assetPrefix}_coinbase_price`] = pairSnapshot.coinbase_price;
+    snapshot[`${assetPrefix}_coinbase_order_book_json`] = pairSnapshot.coinbase_order_book_json;
+    snapshot[`${assetPrefix}_coinbase_event_ts`] = pairSnapshot.coinbase_event_ts;
+    snapshot[`${assetPrefix}_kraken_price`] = pairSnapshot.kraken_price;
+    snapshot[`${assetPrefix}_kraken_order_book_json`] = pairSnapshot.kraken_order_book_json;
+    snapshot[`${assetPrefix}_kraken_event_ts`] = pairSnapshot.kraken_event_ts;
+    snapshot[`${assetPrefix}_okx_price`] = pairSnapshot.okx_price;
+    snapshot[`${assetPrefix}_okx_order_book_json`] = pairSnapshot.okx_order_book_json;
+    snapshot[`${assetPrefix}_okx_event_ts`] = pairSnapshot.okx_event_ts;
+    snapshot[`${assetPrefix}_chainlink_price`] = pairSnapshot.chainlink_price;
+    snapshot[`${assetPrefix}_chainlink_event_ts`] = pairSnapshot.chainlink_event_ts;
+  }
+
+  private buildSnapshot(pairSnapshotByPairKey: Map<string, PairSnapshot>): Snapshot {
+    const pairSnapshots = [...pairSnapshotByPairKey.entries()]
+      .sort(([leftPairKey], [rightPairKey]) => leftPairKey.localeCompare(rightPairKey))
+      .map(([, pairSnapshot]) => pairSnapshot);
+    const generatedAt = pairSnapshots[0]?.generated_at ?? 0;
+    const snapshot: Snapshot = { generated_at: generatedAt };
+
+    for (const pairSnapshot of pairSnapshots) {
+      this.assignPairSnapshotFields(snapshot, pairSnapshot);
+      this.assignAssetSnapshotFields(snapshot, pairSnapshot);
     }
 
-    return pendingSnapshotByPairKey;
+    return snapshot;
   }
 
   private emitSnapshotsAt(generatedAt: number): void {
-    const trackedPairKeys = this.listenerRegistry.readTrackedPairKeys(undefined, this.pairRuntime.readTrackedPairKeys());
-    const snapshotByPairKey = this.pairRuntime.readEmittableSnapshots(trackedPairKeys, generatedAt);
-    const pendingSnapshotByPairKey = this.buildPendingSnapshotByPairKey(snapshotByPairKey);
-    this.listenerRegistry.dispatchSnapshots(pendingSnapshotByPairKey, this.serviceLogger);
+    const trackedPairKeys = this.pairRuntime.readTrackedPairKeys();
+    const pairSnapshotByPairKey = this.pairRuntime.readEmittableSnapshots(trackedPairKeys, generatedAt);
+    const shouldEmitSnapshot = this.lastEmittedGeneratedAt !== generatedAt && pairSnapshotByPairKey.size > 0;
+
+    if (shouldEmitSnapshot) {
+      this.lastEmittedGeneratedAt = generatedAt;
+      this.listenerRegistry.dispatchSnapshot(this.buildSnapshot(pairSnapshotByPairKey), this.serviceLogger);
+    }
   }
 
   /**
@@ -295,17 +332,17 @@ export class SnapshotService {
     this.queueRuntimeSync();
   }
 
-  public removeSnapshotListener(listener: SnapshotListener): void {
+  public removeSnapshotListener(listener: (snapshot: Snapshot) => void): void {
     this.listenerRegistry.removeListener(listener);
     this.queueRuntimeSync();
   }
 
-  public getSnapshot(options?: GetSnapshotOptions): Snapshot[] {
-    const trackedPairKeys = this.listenerRegistry.readTrackedPairKeys(options, this.pairRuntime.readTrackedPairKeys());
+  public getSnapshot(): Snapshot | null {
+    const trackedPairKeys = this.pairRuntime.readTrackedPairKeys();
     const generatedAt = this.ticker.readAlignedSnapshotAtMs(this.scheduler.now());
-    const snapshotByPairKey = this.pairRuntime.readSnapshots(trackedPairKeys, generatedAt);
-    const snapshots = [...snapshotByPairKey.values()];
-    return snapshots;
+    const pairSnapshotByPairKey = this.pairRuntime.readSnapshots(trackedPairKeys, generatedAt);
+    const snapshot = pairSnapshotByPairKey.size > 0 ? this.buildSnapshot(pairSnapshotByPairKey) : null;
+    return snapshot;
   }
 
   public async disconnect(): Promise<void> {

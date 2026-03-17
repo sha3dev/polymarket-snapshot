@@ -1,6 +1,6 @@
 {
   "formatVersion": "v1",
-  "generatedByVersion": "0.33.0",
+  "generatedByVersion": "0.38.0",
   "project": {
     "name": "polymarket-snapshot",
     "template": "node-lib",
@@ -25,9 +25,9 @@
       "imports:internals",
       "consts",
       "types",
+      "class",
       "private:attributes",
       "protected:attributes",
-      "private:properties",
       "public:properties",
       "constructor",
       "static:properties",
@@ -358,6 +358,32 @@
       }
     },
     {
+      "id": "no-module-functions-in-class-files",
+      "title": "No Module Functions In Class Files",
+      "summary": "Files that expose a public class must not keep helper functions at module scope; that logic must live inside the class as private or static methods.",
+      "severity": "blocking-deterministic",
+      "kind": "architecture",
+      "deterministic": true,
+      "verificationMode": "deterministic",
+      "verificationSource": "ast",
+      "blocking": true,
+      "implementedBy": [
+        "source-rule-verifier"
+      ],
+      "requiresContext": "full-project",
+      "confidence": "high",
+      "appliesTo": [
+        "src/**/*.ts"
+      ],
+      "enforcedBy": [
+        "verify"
+      ],
+      "examples": {
+        "good": [],
+        "bad": []
+      }
+    },
+    {
       "id": "typescript-only",
       "title": "TypeScript Only",
       "summary": "Implementation and test code must stay in TypeScript files only.",
@@ -470,7 +496,7 @@
     {
       "id": "module-constant-case",
       "title": "Module Constant Case",
-      "summary": "Module-level constants must use SCREAMING_SNAKE_CASE except for the canonical config export.",
+      "summary": "Module-level constants must use SCREAMING_SNAKE_CASE except for the canonical config and logger exports.",
       "severity": "blocking-deterministic",
       "kind": "style",
       "deterministic": true,
@@ -1405,6 +1431,32 @@
       "blocking": true,
       "implementedBy": [
         "change-audit-verifier"
+      ],
+      "requiresContext": "full-project",
+      "confidence": "medium",
+      "appliesTo": [
+        "src/**/*.ts"
+      ],
+      "enforcedBy": [
+        "verify"
+      ],
+      "examples": {
+        "good": [],
+        "bad": []
+      }
+    },
+    {
+      "id": "large-class-heuristic",
+      "title": "Large Class Heuristic",
+      "summary": "Very large classes should be decomposed into smaller cohesive units instead of accumulating unrelated responsibilities in one file.",
+      "severity": "guidance",
+      "kind": "architecture",
+      "deterministic": false,
+      "verificationMode": "heuristic",
+      "verificationSource": "ast",
+      "blocking": true,
+      "implementedBy": [
+        "typescript-style-verifier"
       ],
       "requiresContext": "full-project",
       "confidence": "medium",

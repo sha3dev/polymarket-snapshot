@@ -2,7 +2,7 @@
  * @section imports:externals
  */
 
-import type { CryptoProviderId, FeedEvent, OrderBookSnapshot, PricePoint } from "@sha3/crypto";
+import type { CryptoProviderId, FeedEvent } from "@sha3/crypto";
 import type { MarketEvent, PolymarketMarket } from "@sha3/polymarket";
 
 /**
@@ -10,13 +10,11 @@ import type { MarketEvent, PolymarketMarket } from "@sha3/polymarket";
  */
 
 import config from "../config.ts";
-import { SnapshotState } from "./snapshot-state.service.ts";
 import type {
   PairKeyParts,
+  PairSnapshot,
   PairState,
-  PolymarketOutcomeSnapshot,
   ProviderSnapshot,
-  Snapshot,
   SnapshotAsset,
   SnapshotLogger,
   SnapshotMarketCatalog,
@@ -24,12 +22,7 @@ import type {
   SnapshotScheduler,
   SnapshotWindow,
 } from "./snapshot.types.ts";
-
-/**
- * @section consts
- */
-
-const SNAPSHOT_STATE = SnapshotState.create();
+import { SnapshotPairState } from "./snapshot-pair-state.service.ts";
 
 /**
  * @section types
@@ -41,13 +34,15 @@ type SnapshotPairRuntimeOptions = {
   scheduler: SnapshotScheduler;
   serviceLogger: SnapshotLogger;
   supportedAssets: SnapshotAsset[];
-  priceToBeatInitialDelayMs: number;
-  priceToBeatRetryIntervalMs: number;
 };
+
+/**
+ * @section class
+ */
 
 export class SnapshotPairRuntime {
   /**
-   * @section private:properties
+   * @section private:attributes
    */
 
   private readonly marketCatalogService: SnapshotMarketCatalog;
@@ -55,8 +50,7 @@ export class SnapshotPairRuntime {
   private readonly scheduler: SnapshotScheduler;
   private readonly serviceLogger: SnapshotLogger;
   private readonly supportedAssets: SnapshotAsset[];
-  private readonly priceToBeatInitialDelayMs: number;
-  private readonly priceToBeatRetryIntervalMs: number;
+  private readonly pairState: SnapshotPairState;
   private readonly cryptoStateByAsset: Map<SnapshotAsset, Record<CryptoProviderId, ProviderSnapshot>>;
   private readonly pairStateByKey: Map<string, PairState>;
   private readonly pairKeysByPolymarketAssetId: Map<string, Set<string>>;
@@ -72,8 +66,7 @@ export class SnapshotPairRuntime {
     this.scheduler = options.scheduler;
     this.serviceLogger = options.serviceLogger;
     this.supportedAssets = [...options.supportedAssets];
-    this.priceToBeatInitialDelayMs = options.priceToBeatInitialDelayMs;
-    this.priceToBeatRetryIntervalMs = options.priceToBeatRetryIntervalMs;
+    this.pairState = new SnapshotPairState({ supportedAssets: this.supportedAssets });
     this.cryptoStateByAsset = new Map<SnapshotAsset, Record<CryptoProviderId, ProviderSnapshot>>();
     this.pairStateByKey = new Map<string, PairState>();
     this.pairKeysByPolymarketAssetId = new Map<string, Set<string>>();
@@ -90,24 +83,22 @@ export class SnapshotPairRuntime {
     return pairKeyParts;
   }
 
-  private getCryptoState(asset: SnapshotAsset): Record<CryptoProviderId, ProviderSnapshot> {
-    let providerSnapshots = this.cryptoStateByAsset.get(asset) ?? null;
-
-    if (providerSnapshots === null) {
-      providerSnapshots = SNAPSHOT_STATE.createProviderSnapshotRecord();
-      this.cryptoStateByAsset.set(asset, providerSnapshots);
-    }
-
-    return providerSnapshots;
-  }
-
   private async activateMissingPairs(activePairKeys: Set<string>): Promise<void> {
     for (const pairKey of activePairKeys) {
       const isTrackedPair = this.pairStateByKey.has(pairKey);
 
       if (!isTrackedPair) {
         const pairKeyParts = this.parsePairKey(pairKey);
-        const pairState = SNAPSHOT_STATE.createPairState(pairKeyParts.asset, pairKeyParts.window);
+        const pairState: PairState = {
+          asset: pairKeyParts.asset,
+          window: pairKeyParts.window,
+          currentMarket: null,
+          currentSlug: null,
+          rotationTimer: null,
+          up: { assetId: null, price: null, orderBook: null, eventTs: null },
+          down: { assetId: null, price: null, orderBook: null, eventTs: null },
+        };
+
         this.pairStateByKey.set(pairKey, pairState);
         await this.activatePairMarket(pairKey, pairState, new Date(this.scheduler.now()));
       }
@@ -137,11 +128,6 @@ export class SnapshotPairRuntime {
   }
 
   private clearPairTimers(pairState: PairState): void {
-    if (pairState.priceToBeatTimer !== null) {
-      this.scheduler.clearTimeout(pairState.priceToBeatTimer);
-      pairState.priceToBeatTimer = null;
-    }
-
     if (pairState.rotationTimer !== null) {
       this.scheduler.clearTimeout(pairState.rotationTimer);
       pairState.rotationTimer = null;
@@ -162,9 +148,6 @@ export class SnapshotPairRuntime {
   private resetPairMarketState(pairState: PairState, market: PolymarketMarket): void {
     pairState.currentMarket = market;
     pairState.currentSlug = market.slug;
-    pairState.priceToBeat = null;
-    pairState.hasResolvedPriceToBeat = false;
-    pairState.isPriceToBeatLoading = false;
     pairState.up = { assetId: market.upTokenId, price: null, orderBook: null, eventTs: null };
     pairState.down = { assetId: market.downTokenId, price: null, orderBook: null, eventTs: null };
   }
@@ -264,16 +247,6 @@ export class SnapshotPairRuntime {
     }, config.MARKET_ACTIVATION_RETRY_INTERVAL_MS);
   }
 
-  private schedulePriceToBeat(pairKey: string, pairState: PairState, delayMs: number): void {
-    if (pairState.priceToBeatTimer !== null) {
-      this.scheduler.clearTimeout(pairState.priceToBeatTimer);
-    }
-
-    pairState.priceToBeatTimer = this.scheduler.setTimeout((): void => {
-      void this.loadPriceToBeat(pairKey);
-    }, delayMs);
-  }
-
   private async activatePairMarket(pairKey: string, pairState: PairState, date: Date): Promise<void> {
     const nextSlug = this.buildSlug(pairState.asset, pairState.window, date);
     const shouldReloadMarket = nextSlug !== pairState.currentSlug;
@@ -297,118 +270,11 @@ export class SnapshotPairRuntime {
       this.detachMarketTokens(pairKey, pairState);
       this.resetPairMarketState(pairState, nextMarket);
       this.attachMarketTokens(pairKey, pairState);
-      this.schedulePriceToBeat(pairKey, pairState, this.priceToBeatInitialDelayMs);
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       this.serviceLogger.warn(`[SNAPSHOT] Failed to activate market ${pairKey}: ${reason}`);
       this.scheduleMarketActivationRetry(pairKey, pairState);
     }
-  }
-
-  private async loadPriceToBeat(pairKey: string): Promise<void> {
-    const pairState = this.pairStateByKey.get(pairKey) ?? null;
-
-    if (pairState !== null && !pairState.hasResolvedPriceToBeat && !pairState.isPriceToBeatLoading && pairState.currentMarket !== null) {
-      pairState.isPriceToBeatLoading = true;
-
-      try {
-        const priceToBeat = await this.marketCatalogService.getPriceToBeat({ market: pairState.currentMarket });
-
-        if (priceToBeat !== null) {
-          pairState.priceToBeat = priceToBeat;
-          pairState.hasResolvedPriceToBeat = true;
-          pairState.priceToBeatTimer = null;
-        }
-
-        if (priceToBeat === null) {
-          this.schedulePriceToBeat(pairKey, pairState, this.priceToBeatRetryIntervalMs);
-        }
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        this.serviceLogger.warn(`[SNAPSHOT] Failed to load priceToBeat ${pairKey}: ${reason}`);
-        this.schedulePriceToBeat(pairKey, pairState, this.priceToBeatRetryIntervalMs);
-      }
-
-      pairState.isPriceToBeatLoading = false;
-    }
-  }
-
-  private readSnapshotAsset(symbol: string): SnapshotAsset | null {
-    const normalizedSymbol = symbol.toLowerCase() as SnapshotAsset;
-    const snapshotAsset = this.supportedAssets.includes(normalizedSymbol) ? normalizedSymbol : null;
-    return snapshotAsset;
-  }
-
-  private applyCryptoPrice(providerSnapshots: Record<CryptoProviderId, ProviderSnapshot>, event: PricePoint): void {
-    const providerSnapshot = providerSnapshots[event.provider];
-
-    providerSnapshot.price = event.price;
-    providerSnapshot.eventTs = event.ts;
-  }
-
-  private applyCryptoOrderBook(providerSnapshots: Record<CryptoProviderId, ProviderSnapshot>, event: OrderBookSnapshot): void {
-    const providerSnapshot = providerSnapshots[event.provider];
-
-    providerSnapshot.orderBook = SNAPSHOT_STATE.clonePricePointOrderBook(event);
-    providerSnapshot.eventTs = event.ts;
-  }
-
-  private isGeneratedAtInsideCurrentMarket(pairState: PairState, generatedAt: number): boolean {
-    const market = pairState.currentMarket;
-    let isGeneratedAtInsideCurrentMarket = false;
-
-    if (market !== null) {
-      const marketStartMs = market.start.getTime();
-      const marketEndMs = market.end.getTime();
-      isGeneratedAtInsideCurrentMarket = generatedAt >= marketStartMs && generatedAt < marketEndMs;
-    }
-
-    return isGeneratedAtInsideCurrentMarket;
-  }
-
-  private isEventInsideMarket(pairState: PairState, event: MarketEvent): boolean {
-    const market = pairState.currentMarket;
-    let isEventInsideMarket = false;
-
-    if (market !== null) {
-      const eventMs = event.date.getTime();
-      const startMs = market.start.getTime();
-      const endMs = market.end.getTime();
-      isEventInsideMarket = eventMs >= startMs && eventMs < endMs;
-    }
-
-    return isEventInsideMarket;
-  }
-
-  private applyPolymarketEvent(pairState: PairState, event: MarketEvent): void {
-    const isUpEvent = pairState.up.assetId === event.assetId;
-    const isDownEvent = pairState.down.assetId === event.assetId;
-
-    if (isUpEvent) {
-      this.applyPolymarketOutcomeEvent(pairState.up, event);
-    }
-
-    if (isDownEvent) {
-      this.applyPolymarketOutcomeEvent(pairState.down, event);
-    }
-  }
-
-  private applyPolymarketOutcomeEvent(outcomeSnapshot: PolymarketOutcomeSnapshot, event: MarketEvent): void {
-    outcomeSnapshot.eventTs = event.date.getTime();
-
-    if (event.type === "price") {
-      outcomeSnapshot.price = event.price;
-    }
-
-    if (event.type === "book") {
-      outcomeSnapshot.orderBook = SNAPSHOT_STATE.clonePolymarketOrderBook({ asks: event.asks, bids: event.bids });
-    }
-  }
-
-  private buildSnapshot(pairState: PairState, generatedAt: number): Snapshot {
-    const providerSnapshots = this.getCryptoState(pairState.asset);
-    const snapshot = SNAPSHOT_STATE.buildSnapshot(pairState, generatedAt, providerSnapshots);
-    return snapshot;
   }
 
   /**
@@ -427,67 +293,25 @@ export class SnapshotPairRuntime {
   }
 
   public readTrackedPairKeys(): string[] {
-    const trackedPairKeys = [...this.pairStateByKey.keys()];
+    const trackedPairKeys = [...this.pairStateByKey.keys()].sort();
     return trackedPairKeys;
   }
 
-  public readSnapshots(pairKeys: string[], generatedAt: number): Map<string, Snapshot> {
-    const snapshotByPairKey = new Map<string, Snapshot>();
-
-    for (const pairKey of pairKeys) {
-      const pairState = this.pairStateByKey.get(pairKey) ?? null;
-
-      if (pairState !== null) {
-        snapshotByPairKey.set(pairKey, this.buildSnapshot(pairState, generatedAt));
-      }
-    }
-
-    return snapshotByPairKey;
+  public readSnapshots(pairKeys: string[], generatedAt: number): Map<string, PairSnapshot> {
+    const pairSnapshotByPairKey = this.pairState.readSnapshots(this.cryptoStateByAsset, this.pairStateByKey, pairKeys, generatedAt);
+    return pairSnapshotByPairKey;
   }
 
-  public readEmittableSnapshots(pairKeys: string[], generatedAt: number): Map<string, Snapshot> {
-    const snapshotByPairKey = new Map<string, Snapshot>();
-
-    for (const pairKey of pairKeys) {
-      const pairState = this.pairStateByKey.get(pairKey) ?? null;
-      const isGeneratedAtInsideCurrentMarket = pairState !== null ? this.isGeneratedAtInsideCurrentMarket(pairState, generatedAt) : false;
-
-      if (pairState !== null && isGeneratedAtInsideCurrentMarket) {
-        snapshotByPairKey.set(pairKey, this.buildSnapshot(pairState, generatedAt));
-      }
-    }
-
-    return snapshotByPairKey;
+  public readEmittableSnapshots(pairKeys: string[], generatedAt: number): Map<string, PairSnapshot> {
+    const pairSnapshotByPairKey = this.pairState.readEmittableSnapshots(this.cryptoStateByAsset, this.pairStateByKey, pairKeys, generatedAt);
+    return pairSnapshotByPairKey;
   }
 
   public handleCryptoEvent(event: FeedEvent): void {
-    const snapshotAsset = "symbol" in event ? this.readSnapshotAsset(event.symbol) : null;
-    const isDataEvent = event.type === "price" || event.type === "orderbook";
-
-    if (snapshotAsset !== null && isDataEvent) {
-      const providerSnapshots = this.getCryptoState(snapshotAsset);
-
-      if (event.type === "price") {
-        this.applyCryptoPrice(providerSnapshots, event);
-      }
-
-      if (event.type === "orderbook") {
-        this.applyCryptoOrderBook(providerSnapshots, event);
-      }
-    }
+    this.pairState.handleCryptoEvent(this.cryptoStateByAsset, event);
   }
 
   public handlePolymarketEvent(event: MarketEvent): void {
-    const pairKeys = this.pairKeysByPolymarketAssetId.get(event.assetId) ?? null;
-
-    if (pairKeys !== null) {
-      for (const pairKey of pairKeys) {
-        const pairState = this.pairStateByKey.get(pairKey) ?? null;
-
-        if (pairState !== null && this.isEventInsideMarket(pairState, event)) {
-          this.applyPolymarketEvent(pairState, event);
-        }
-      }
-    }
+    this.pairState.handlePolymarketEvent(this.pairKeysByPolymarketAssetId, this.pairStateByKey, event);
   }
 }

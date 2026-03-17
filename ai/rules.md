@@ -49,6 +49,8 @@ Read this file together with `AGENTS.md` and `ai/contract.json` before making im
 
 - Inside `src/<feature>/`, files MUST expose exactly one public class unless the file is `*.types.ts`.
 - Do not implement feature modules as exported function collections.
+- If a file exposes a public class, helper logic MUST stay inside that class as private or static methods instead of module-scope functions.
+- Large classes MUST be decomposed into smaller cohesive units before they become monolithic files.
 
 ## README
 
@@ -69,11 +71,12 @@ Read this file together with `AGENTS.md` and `ai/contract.json` before making im
 - `domain-specific-identifiers`: New identifiers must avoid generic names such as data, obj, tmp, val, thing, helper, utils, and common. (verify, confidence: high)
 - `boolean-prefix`: Boolean variables and properties must start with is, has, can, or should. (verify, confidence: high)
 - `feature-filename-role`: Feature files must use the feature name plus an explicit role suffix such as .service.ts or .types.ts. (verify, confidence: high)
+- `no-module-functions-in-class-files`: Files that expose a public class must not keep helper functions at module scope; that logic must live inside the class as private or static methods. (verify, confidence: high)
 - `typescript-only`: Implementation and test code must stay in TypeScript files only. (verify, biome, confidence: high)
 - `kebab-case-paths`: Source and test paths must use kebab-case names for files and directories unless explicitly reserved. (verify, confidence: high)
 - `singular-feature-folders`: Feature folder names under src/ must be singular unless they are reserved structural folders. (verify, confidence: high)
 - `test-file-naming`: Tests must live under test/ and use the .test.ts suffix. (verify, confidence: high)
-- `module-constant-case`: Module-level constants must use SCREAMING_SNAKE_CASE except for the canonical config export. (verify, confidence: high)
+- `module-constant-case`: Module-level constants must use SCREAMING_SNAKE_CASE except for the canonical config and logger exports. (verify, confidence: high)
 - `local-constant-case`: Local constants must use camelCase names. (verify, confidence: high)
 - `config-default-export-name`: src/config.ts must export a default object named config. (verify, confidence: high)
 - `no-any`: Explicit any is forbidden in source and tests. (verify, confidence: high)
@@ -108,6 +111,7 @@ Read this file together with `AGENTS.md` and `ai/contract.json` before making im
 - `readme-runnable-examples`: README must include plausible runnable code or command examples instead of abstract placeholders. (verify, confidence: medium)
 - `no-speculative-abstractions`: Factories, options types, wrappers, and helper layers should not exist without a real current consumer or complexity reduction. (verify, confidence: medium)
 - `single-responsibility-heuristic`: Long functions and methods should be split when they appear to mix multiple responsibilities. (verify, confidence: medium)
+- `large-class-heuristic`: Very large classes should be decomposed into smaller cohesive units instead of accumulating unrelated responsibilities in one file. (verify, confidence: medium)
 
 ## Active Audit Rules
 

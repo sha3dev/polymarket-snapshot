@@ -18,9 +18,13 @@ import type { CreateInvoiceCommand, Invoice, InvoiceSummary } from "./invoice.ty
 
 // empty
 
+/**
+ * @section class
+ */
+
 export class InvoiceService {
   /**
-   * @section private:properties
+   * @section private:attributes
    */
 
   private readonly invoicesById: Map<string, Invoice>;

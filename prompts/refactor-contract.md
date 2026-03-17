@@ -34,6 +34,8 @@ If unsure whether to preserve a legacy structure, default to the simpler standar
 - You MUST NEVER use `git checkout`, `git restore`, or snapshot copies to roll managed files back to an older contract or toolchain state during refactor work.
 - You MUST actively remove unjustified legacy complexity during the refactor instead of preserving it by inertia.
 - Before writing final code, you MUST explicitly compare the planned target structure against the active standards and remove any copied legacy shape that is not required.
+- In class-oriented source files, you MUST fold helper logic into private or static class methods instead of leaving module-scope helper functions behind.
+- You MUST break oversized classes into smaller cohesive units instead of preserving monolithic class files.
 - You MUST execute `npm run check` yourself before finishing.
 - If `npm run check` fails, you MUST fix the issues and rerun it until it passes.
 

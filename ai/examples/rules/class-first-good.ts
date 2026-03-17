@@ -17,18 +17,16 @@ const serviceName = "invoice-service";
 type CreateInvoiceCommand = { customerId: string; amount: number };
 type Invoice = { id: string; customerId: string; amount: number; createdAt: Date };
 
+/**
+ * @section class
+ */
+
 export class InvoiceService {
   /**
    * @section private:attributes
    */
 
   private readonly requestId: string;
-
-  /**
-   * @section private:properties
-   */
-
-  private readonly invoicesById: Map<string, Invoice>;
 
   /**
    * @section public:properties
@@ -41,8 +39,8 @@ export class InvoiceService {
    */
 
   public constructor() {
-    this.invoicesById = new Map<string, Invoice>();
     this.requestId = randomUUID();
+    this.invoicesById = new Map<string, Invoice>();
     this.serviceName = serviceName;
   }
 

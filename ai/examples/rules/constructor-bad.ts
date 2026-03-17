@@ -13,7 +13,7 @@ type IdFactory = () => string;
 
 export class InvoiceIdBuilder {
   /**
-   * @section private:properties
+   * @section private:attributes
    */
 
   private readonly clock: Clock;

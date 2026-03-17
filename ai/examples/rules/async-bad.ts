@@ -10,7 +10,7 @@ type InvoiceWriter = { persist(invoices: Invoice[]): Promise<SyncResult> };
 
 export class InvoiceSyncService {
   /**
-   * @section private:properties
+   * @section private:attributes
    */
 
   private readonly source: InvoiceSource;

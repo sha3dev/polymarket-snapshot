@@ -13,10 +13,14 @@ export type PackageInfo = { packageName: string };
 type PackageInfoServiceOptions = { packageName: string };
 
 /**
- * @section public:properties
+ * @section class
  */
 
 export class PackageInfoService {
+  /**
+   * @section private:attributes
+   */
+
   private readonly packageName: string;
 
   /**

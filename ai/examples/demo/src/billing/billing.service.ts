@@ -12,9 +12,13 @@ import type { InvoiceSummary } from "../invoice/invoice.types.ts";
 
 export type BillingSnapshot = { customerId: string; invoiceCount: number; totalAmount: number; formattedTotal: string; statusServiceUrl: string };
 
+/**
+ * @section class
+ */
+
 export class BillingService {
   /**
-   * @section private:properties
+   * @section private:attributes
    */
 
   private readonly invoiceService: InvoiceService;

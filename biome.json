@@ -1,7 +1,19 @@
 {
   "files": {
     "ignoreUnknown": true,
-    "ignore": [".code-standards", "ai/contract.json"]
+    "includes": [
+      "README.md",
+      "biome.json",
+      "package.json",
+      "package-lock.json",
+      "tsconfig.json",
+      "tsconfig.build.json",
+      "src/**",
+      "test/**",
+      "scripts/**",
+      "!.code-standards",
+      "!dist"
+    ]
   },
   "formatter": {
     "enabled": true,
@@ -12,7 +24,13 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true
+      "recommended": true,
+      "correctness": {
+        "noUnusedFunctionParameters": "error",
+        "noUnusedImports": "error",
+        "noUnusedPrivateClassMembers": "error",
+        "noUnusedVariables": "error"
+      }
     }
   },
   "javascript": {

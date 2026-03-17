@@ -4,6 +4,10 @@
 
 // empty
 
+/**
+ * @section class
+ */
+
 export class InvoiceLookup {
   /**
    * @section factory

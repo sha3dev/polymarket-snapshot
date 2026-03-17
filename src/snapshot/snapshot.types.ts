@@ -2,8 +2,8 @@
  * @section imports:externals
  */
 
-import type { CryptoFeedClient, CryptoProviderId, FeedEvent, OrderBookSnapshot } from "@sha3/crypto";
-import type { CryptoMarketWindow, CryptoSymbol, MarketCatalogService, MarketEvent, MarketStreamService, OrderBook, PolymarketMarket } from "@sha3/polymarket";
+import type { FeedEvent } from "@sha3/crypto";
+import type { CryptoMarketWindow, CryptoSymbol, MarketEvent, OrderBook, PolymarketMarket } from "@sha3/polymarket";
 
 /**
  * @section types
@@ -15,8 +15,8 @@ export type SnapshotWindow = CryptoMarketWindow;
 
 export type ProviderSnapshot = {
   price: number | null;
-  orderBook: OrderBookSnapshot | null;
-  eventTs: number | null;
+  order_book_json: string | null;
+  event_ts: number | null;
 };
 
 export type PolymarketOutcomeSnapshot = {
@@ -26,40 +26,39 @@ export type PolymarketOutcomeSnapshot = {
   eventTs: number | null;
 };
 
-export type Snapshot = {
+export type PairSnapshot = {
+  generated_at: number;
   asset: SnapshotAsset;
   window: SnapshotWindow;
-  generatedAt: number;
-  marketId: string | null;
-  marketSlug: string | null;
-  marketConditionId: string | null;
-  marketStart: string | null;
-  marketEnd: string | null;
-  priceToBeat: number | null;
-  upAssetId: string | null;
-  upPrice: number | null;
-  upOrderBook: OrderBook | null;
-  upEventTs: number | null;
-  downAssetId: string | null;
-  downPrice: number | null;
-  downOrderBook: OrderBook | null;
-  downEventTs: number | null;
-  binancePrice: number | null;
-  binanceOrderBook: OrderBookSnapshot | null;
-  binanceEventTs: number | null;
-  coinbasePrice: number | null;
-  coinbaseOrderBook: OrderBookSnapshot | null;
-  coinbaseEventTs: number | null;
-  krakenPrice: number | null;
-  krakenOrderBook: OrderBookSnapshot | null;
-  krakenEventTs: number | null;
-  okxPrice: number | null;
-  okxOrderBook: OrderBookSnapshot | null;
-  okxEventTs: number | null;
-  chainlinkPrice: number | null;
-  chainlinkOrderBook: OrderBookSnapshot | null;
-  chainlinkEventTs: number | null;
+  is_live_market: boolean;
+  slug: string | null;
+  up_asset_id: string | null;
+  up_price: number | null;
+  up_order_book_json: string | null;
+  up_event_ts: number | null;
+  down_asset_id: string | null;
+  down_price: number | null;
+  down_order_book_json: string | null;
+  down_event_ts: number | null;
+  binance_price: number | null;
+  binance_order_book_json: string | null;
+  binance_event_ts: number | null;
+  coinbase_price: number | null;
+  coinbase_order_book_json: string | null;
+  coinbase_event_ts: number | null;
+  kraken_price: number | null;
+  kraken_order_book_json: string | null;
+  kraken_event_ts: number | null;
+  okx_price: number | null;
+  okx_order_book_json: string | null;
+  okx_event_ts: number | null;
+  chainlink_price: number | null;
+  chainlink_event_ts: number | null;
 };
+
+export type Snapshot = {
+  generated_at: number;
+} & Record<string, number | string | null>;
 
 export type SnapshotListener = (snapshot: Snapshot) => void;
 
@@ -74,7 +73,6 @@ export type SnapshotCryptoClient = {
 export type SnapshotMarketCatalog = {
   buildCryptoWindowSlugs(options: { date: Date; window: SnapshotWindow; symbols?: SnapshotAsset[] }): string[];
   loadMarketBySlug(options: { slug: string }): Promise<PolymarketMarket>;
-  getPriceToBeat(options: { market: PolymarketMarket }): Promise<number | null>;
 };
 
 export type SnapshotMarketStream = {
@@ -89,52 +87,15 @@ export type SnapshotScheduler = {
   now(): number;
   setTimeout(listener: () => void, delayMs: number): unknown;
   clearTimeout(timer: unknown): void;
-  setInterval(listener: () => void, delayMs: number): unknown;
-  clearInterval(timer: unknown): void;
 };
 
 export type SnapshotLogger = {
-  debug(message: string): void;
   warn(message: string): void;
   error(message: string): void;
 };
 
 export type AddSnapshotListenerOptions = {
   listener: SnapshotListener;
-  assets?: SnapshotAsset[];
-  windows?: SnapshotWindow[];
-};
-
-export type GetSnapshotOptions = {
-  assets?: SnapshotAsset[];
-  windows?: SnapshotWindow[];
-};
-
-export type SnapshotServiceOptions = {
-  snapshotIntervalMs?: number;
-  supportedAssets?: SnapshotAsset[];
-  supportedWindows?: SnapshotWindow[];
-  priceToBeatInitialDelayMs?: number;
-  priceToBeatRetryIntervalMs?: number;
-  cryptoClientFactory?: (assets: SnapshotAsset[]) => SnapshotCryptoClient;
-  marketCatalogService?: SnapshotMarketCatalog;
-  marketStreamService?: SnapshotMarketStream;
-  scheduler?: SnapshotScheduler;
-  logger?: SnapshotLogger;
-};
-
-export type SnapshotRuntimeDependencies = {
-  cryptoClientFactory: (assets: SnapshotAsset[]) => SnapshotCryptoClient;
-  marketCatalogService: SnapshotMarketCatalog;
-  marketStreamService: SnapshotMarketStream;
-  scheduler: SnapshotScheduler;
-  logger: SnapshotLogger;
-};
-
-export type SnapshotDefaultRuntime = {
-  cryptoClientFactory: (assets: SnapshotAsset[]) => CryptoFeedClient;
-  marketCatalogService: MarketCatalogService;
-  marketStreamService: MarketStreamService;
 };
 
 export type PairState = {
@@ -142,10 +103,6 @@ export type PairState = {
   window: SnapshotWindow;
   currentMarket: PolymarketMarket | null;
   currentSlug: string | null;
-  priceToBeat: number | null;
-  hasResolvedPriceToBeat: boolean;
-  isPriceToBeatLoading: boolean;
-  priceToBeatTimer: unknown | null;
   rotationTimer: unknown | null;
   up: PolymarketOutcomeSnapshot;
   down: PolymarketOutcomeSnapshot;

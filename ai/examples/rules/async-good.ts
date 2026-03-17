@@ -8,9 +8,13 @@ type SyncResult = { saved: number };
 type InvoiceSource = { fetch(accountId: string): Promise<Invoice[]> };
 type InvoiceWriter = { persist(invoices: Invoice[]): Promise<SyncResult> };
 
+/**
+ * @section class
+ */
+
 export class InvoiceSyncService {
   /**
-   * @section private:properties
+   * @section private:attributes
    */
 
   private readonly source: InvoiceSource;
