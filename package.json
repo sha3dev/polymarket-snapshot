@@ -22,9 +22,9 @@
     "publish": "node scripts/release-publish.mjs"
   },
   "dependencies": {
-    "@sha3/crypto": "file:../crypto",
+    "@sha3/crypto": "^1.0.0",
     "@sha3/logger": "^2.0.0",
-    "@sha3/polymarket": "file:../polymarket"
+    "@sha3/polymarket": "^1.1.0"
   },
   "devDependencies": {
     "@sha3/code-standards": "^0.39.0",
